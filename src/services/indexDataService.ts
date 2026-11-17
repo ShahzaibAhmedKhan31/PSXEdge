@@ -15,9 +15,18 @@ export const STALE_AFTER_DAYS = 7;
 
 const REQUEST_TIMEOUT_MS = 8000;
 
+/**
+ * Shown in the UI and docs. PSX's data portal answers with HTML/JSON but without
+ * an `Access-Control-Allow-Origin` header, so no website can read it directly.
+ */
+export const CORS_SUMMARY =
+  "PSX's Data Portal (dps.psx.com.pk) does not send an Access-Control-Allow-Origin header, so browsers block every cross-origin request to it.";
+
 export interface RefreshOutcome {
   dataset: IndexDataset | null;
   attempts: AttemptLog[];
+  /** True when the PSX attempt was blocked by the browser (CORS). */
+  corsBlocked: boolean;
 }
 
 function datasetStorageKey(index: IndexKey): string {
@@ -167,14 +176,30 @@ export function parsePsxIndexHtml(html: string): Constituent[] {
   return [];
 }
 
-function describeFetchError(error: unknown): string {
+export interface FetchErrorInfo {
+  message: string;
+  corsBlocked: boolean;
+}
+
+/**
+ * Classify a fetch failure. A `TypeError` is what the browser throws for both a
+ * CORS rejection and an offline network failure; PSX is reachable and simply
+ * omits CORS headers, so this is treated as a CORS block.
+ */
+export function classifyFetchError(error: unknown): FetchErrorInfo {
   if (error instanceof DOMException && error.name === 'AbortError') {
-    return 'The request timed out after 8 seconds.';
+    return { message: 'The request timed out after 8 seconds.', corsBlocked: false };
   }
   if (error instanceof TypeError) {
-    return 'Blocked by the browser (CORS) or the network. PSX does not send Access-Control-Allow-Origin headers.';
+    return {
+      message: `Blocked by the browser (CORS). ${CORS_SUMMARY}`,
+      corsBlocked: true,
+    };
   }
-  return error instanceof Error ? error.message : 'Unknown network error.';
+  return {
+    message: error instanceof Error ? error.message : 'Unknown network error.',
+    corsBlocked: false,
+  };
 }
 
 async function attemptPsxPage(index: IndexKey): Promise<{ dataset: IndexDataset | null; attempts: AttemptLog[] }> {
@@ -203,7 +228,11 @@ async function attemptPsxPage(index: IndexKey): Promise<{ dataset: IndexDataset 
     });
     return { dataset, attempts: [{ label, ok: true }] };
   } catch (error) {
-    return { dataset: null, attempts: [{ label, ok: false, message: describeFetchError(error) }] };
+    const failure = classifyFetchError(error);
+    return {
+      dataset: null,
+      attempts: [{ label, ok: false, message: failure.message, corsBlocked: failure.corsBlocked }],
+    };
   }
 }
 
@@ -260,9 +289,10 @@ async function attemptCustomFeed(index: IndexKey, feedUrl: string): Promise<{ da
     });
     return { dataset, attempts: [{ label, ok: true }] };
   } catch (error) {
+    const failure = classifyFetchError(error);
     return {
-      dataset: undefined as never,
-      attempts: [{ label, ok: false, message: describeFetchError(error) }],
+      dataset: null,
+      attempts: [{ label, ok: false, message: failure.message, corsBlocked: failure.corsBlocked }],
     };
   }
 }
@@ -278,14 +308,18 @@ export async function refreshIndexData(index: IndexKey, feedUrl = getCustomFeedU
   if (feedUrl) {
     const result = await attemptCustomFeed(index, feedUrl);
     attempts.push(...result.attempts);
-    if (result.dataset) return { dataset: result.dataset, attempts };
+    if (result.dataset) return { dataset: result.dataset, attempts, corsBlocked: false };
   }
 
   const psxResult = await attemptPsxPage(index);
   attempts.push(...psxResult.attempts);
-  if (psxResult.dataset) return { dataset: psxResult.dataset, attempts };
+  if (psxResult.dataset) return { dataset: psxResult.dataset, attempts, corsBlocked: false };
 
-  return { dataset: null, attempts };
+  return {
+    dataset: null,
+    attempts,
+    corsBlocked: attempts.some((attempt) => attempt.corsBlocked === true),
+  };
 }
 
 /** Format an ISO date for display, e.g. "17 Nov 2026, 10:30". */

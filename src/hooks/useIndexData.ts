@@ -17,6 +17,8 @@ const MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 export interface RefreshFeedback {
   ok: boolean;
   message: string;
+  /** True when the browser blocked the PSX request (missing CORS headers). */
+  corsBlocked: boolean;
 }
 
 function initialDatasets(): Record<IndexKey, IndexDataset> {
@@ -64,19 +66,20 @@ export function useIndexData() {
 
       try {
         const outcome = await refreshIndexData(index);
-        if (!mounted.current) return { ok: false, message: 'Unmounted' };
+        if (!mounted.current) return { ok: false, message: 'Unmounted', corsBlocked: false };
 
         setAttempts(outcome.attempts);
 
         if (outcome.dataset) {
           saveCachedDataset(outcome.dataset);
           setDatasets((current) => ({ ...current, [outcome.dataset!.index]: outcome.dataset! }));
-          return { ok: true, message: `${meta.label} data updated.` };
+          return { ok: true, message: `${meta.label} data updated.`, corsBlocked: false };
         }
 
         return {
           ok: false,
           message: `Live retrieval failed — keeping the last validated ${meta.label} dataset.`,
+          corsBlocked: outcome.corsBlocked,
         };
       } finally {
         if (mounted.current && !options?.silent) setRefreshing(false);

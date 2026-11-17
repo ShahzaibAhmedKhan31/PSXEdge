@@ -64,7 +64,7 @@ export function Header({
               onClick={onRefresh}
               disabled={refreshing}
               aria-label="Refresh index data"
-              title="Refresh index data"
+              title="Try to fetch fresh data. PSX blocks browser requests (CORS), so this usually falls back to the cached dataset."
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ink-200 bg-white text-ink-600 transition-colors hover:bg-ink-50 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-70 dark:border-ink-800 dark:bg-ink-900 dark:text-ink-300 dark:hover:bg-ink-800 dark:hover:text-white"
             >
               <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} aria-hidden="true" />

@@ -60,4 +60,6 @@ export interface AttemptLog {
   label: string;
   ok: boolean;
   message?: string;
+  /** True when the browser blocked the request because PSX sends no CORS headers. */
+  corsBlocked?: boolean;
 }

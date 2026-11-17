@@ -119,11 +119,18 @@ export function Dashboard() {
     const result = await refresh();
     if (result.ok) {
       showToast('success', 'Data refreshed', result.message);
+    } else if (result.corsBlocked) {
+      // Expected: PSX sends no CORS headers. Never present this as a failure of the app.
+      showToast(
+        'info',
+        'PSX blocks browser reads (CORS)',
+        'That console warning is expected: PSX sends no Access-Control-Allow-Origin header, so no website can read it directly. Your last validated dataset is still in use — import a CSV/XLSX or connect a feed to update it.',
+      );
     } else {
       showToast(
         'error',
-        'Live refresh unavailable',
-        'PSX does not allow browser cross-origin requests. Your last validated dataset is still in use — import a CSV/XLSX to update it.',
+        'Live refresh failed',
+        'The data source could not be reached. Your last validated dataset is still in use — try again, or import a CSV/XLSX file.',
       );
     }
   }, [refresh, showToast]);

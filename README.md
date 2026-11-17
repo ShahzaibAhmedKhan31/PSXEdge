@@ -71,6 +71,27 @@ Those pages are server-rendered HTML and the upstream JSON routes (for example
 cannot read them, and PSXEdge deliberately does **not** bypass CORS with a proxy, scraper or backend. Instead it ships a
 clearly labelled snapshot and gives you two ways to refresh it.
 
+### “Why do I get a CORS error when I click Refresh?”
+
+You will see something like this in the browser console:
+
+```
+Access to fetch at 'https://dps.psx.com.pk/indices/KMI30' from origin 'http://localhost:5173'
+has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+That is the **expected** result and not a bug:
+
+1. The browser sends the request and PSX's server answers with its HTML.
+2. Because the response has no `Access-Control-Allow-Origin` header, the browser refuses to expose the body to
+   JavaScript and logs the warning. The app's `fetch()` rejects with a `TypeError`.
+3. PSXEdge catches that, keeps the last validated dataset untouched, and tells you what happened.
+
+No frontend-only code can remove that console line — it is emitted by the browser itself before your code runs. Reading
+PSX directly would require a server-side proxy, which this project intentionally does not have. The in-app
+**“Live refresh, CORS and data sources”** panel documents this, and the alternatives are below. If you connect a
+CORS-enabled feed, Refresh uses that instead and no PSX request is made.
+
 ### 1. Bundled snapshot (used by default)
 
 The app ships real constituent snapshots captured from the official PSX Data Portal on **17 November 2026**, with
@@ -199,7 +220,7 @@ State stays local: a few hooks plus React state in the dashboard. No Redux, no r
 npm test
 ```
 
-The Vitest suite (71 assertions across 6 files) covers the calculator, validation and import logic, formatters, the CSV
+The Vitest suite (85 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
 parser and the Excel workbook (including a serialisation round-trip):
 
 1. KSE-100 default multiplier is 1.5, KMI-30 is 1.1
@@ -210,6 +231,7 @@ parser and the Excel workbook (including a serialisation round-trip):
 6. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
 7. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
 8. Excel worksheet names, summary values, row counts, number formats, filters, totals row
+9. Refresh behaviour: CORS failures are classified (not thrown), feeds are preferred, invalid feed data falls back
 
 Manual checks that complement the suite: instant updates while typing, index switching, dark-mode persistence, import
 of a real PSX file, cached-dataset recovery after reload, and responsive layout.

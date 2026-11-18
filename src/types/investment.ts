@@ -1,4 +1,4 @@
-import type { IndexKey } from './index';
+import type { Constituent, IndexKey } from './index';
 
 /** One row of the allocation table. */
 export interface AllocationRow {
@@ -8,31 +8,31 @@ export interface AllocationRow {
   sector: string;
   /** Original PSX index weightage in percent. */
   originalWeightage: number;
-  /** Multiplier applied to this row (same for every row, kept for export). */
+  /** Auto multiplier applied to this row (same for every row, kept for export). */
   multiplier: number;
-  /** originalWeightage × multiplier. */
+  /** originalWeightage × multiplier. The visible rows always total 100%. */
   adjustedWeightage: number;
   /** Precise allocation in PKR (not rounded). */
   allocation: number;
-  /** Allocation rounded to whole rupees — what the UI and Excel display. */
+  /** Allocation in whole rupees — what the UI and Excel display. */
   allocationRounded: number;
 }
 
 export interface InvestmentTotals {
   /** Budget entered by the user. */
   totalInvestment: number;
+  /** Auto multiplier: 100 ÷ sum of the visible original weightages. */
   multiplier: number;
-  /** Sum of adjusted weightages in percent. Never normalised to 100. */
+  /** Sum of adjusted weightages; 100 when at least one company is selected. */
   adjustedWeightage: number;
   /** Sum of the rounded per-company allocations (matches the table). */
   allocatedAmount: number;
-  /** Sum of precise allocations (used for the over-allocation check). */
+  /** Sum of precise allocations. */
   allocatedPrecise: number;
-  /** totalInvestment − allocatedAmount. Negative when over-allocated. */
+  /** totalInvestment − allocatedAmount (normally 0, or < Rs 1 of rounding). */
   remainingCash: number;
-  /** True when adjusted weightages commit more than 100% of the budget. */
+  /** Kept for compatibility; normalised allocations never exceed the budget. */
   isOverAllocated: boolean;
-  /** Amount committed above the budget (0 when within budget). */
   overAllocatedBy: number;
   companyCount: number;
   index: IndexKey | null;
@@ -43,7 +43,18 @@ export interface InvestmentBreakdown {
   totals: InvestmentTotals;
 }
 
-export interface CalculatorInput {
-  totalInvestment: number;
-  multiplier: number;
+/** A constituent with its index rank (1 = heaviest). */
+export interface RankedConstituent extends Constituent {
+  rank: number;
+}
+
+/** "all" shows the whole index; a number limits the list to the top N by weight. */
+export type TopNSelection = number | 'all';
+
+export interface AllocationFilter {
+  topN: TopNSelection;
+  /** Free-text drill-down on ticker, company name or sector. */
+  search: string;
+  /** "all" or an exact PSX sector name. */
+  sector: string;
 }

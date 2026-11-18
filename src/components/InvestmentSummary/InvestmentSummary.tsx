@@ -1,7 +1,7 @@
 import { Coins, PieChart, Scale, Wallet } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { formatPKR } from '../../utils/currencyFormatter';
-import { formatMultiplier, formatPercent } from '../../utils/percentageFormatter';
+import { formatMultiplierAuto, formatPercent } from '../../utils/percentageFormatter';
 import type { InvestmentTotals } from '../../types/investment';
 
 interface InvestmentSummaryProps {
@@ -24,14 +24,17 @@ export function InvestmentSummary({ totals }: InvestmentSummaryProps) {
     {
       label: 'Adjusted weightage',
       value: formatPercent(totals.adjustedWeightage),
-      hint: `Original weights × ${formatMultiplier(totals.multiplier)}`,
+      hint:
+        totals.companyCount > 0
+          ? `Normalised to 100% · auto multiplier ${formatMultiplierAuto(totals.multiplier)}`
+          : 'No companies selected',
       icon: Scale,
       tone: 'default' as const,
     },
     {
       label: 'Total allocated',
       value: formatPKR(totals.allocatedAmount),
-      hint: `${totals.companyCount} ${totals.companyCount === 1 ? 'company' : 'companies'} · not normalised`,
+      hint: `${totals.companyCount} ${totals.companyCount === 1 ? 'company' : 'companies'} · fully invested`,
       icon: PieChart,
       tone: 'default' as const,
     },
@@ -40,7 +43,9 @@ export function InvestmentSummary({ totals }: InvestmentSummaryProps) {
       value: formatPKR(remainingValue),
       hint: totals.isOverAllocated
         ? `Adjusted weights exceed 100% by ${formatPercent(totals.adjustedWeightage - 100)}`
-        : 'Unallocated part of your budget',
+        : totals.remainingCash < 1
+          ? 'Fully allocated — only rounding residue'
+          : 'Unallocated part of your budget',
       icon: Coins,
       tone: totals.isOverAllocated ? ('danger' as const) : ('positive' as const),
     },

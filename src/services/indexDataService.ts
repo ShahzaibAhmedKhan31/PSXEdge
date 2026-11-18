@@ -66,7 +66,7 @@ export function loadCachedDataset(index: IndexKey): IndexDataset | null {
   const cached = readJSON<unknown>(datasetStorageKey(index));
   if (!isValidDataset(cached, index)) return null;
   const meta = INDEX_META[index];
-  if (cached.constituents.length < meta.topN) return null;
+  if (cached.constituents.length < meta.minConstituents) return null;
   return cached;
 }
 

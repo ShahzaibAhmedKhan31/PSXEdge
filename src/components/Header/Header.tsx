@@ -79,11 +79,7 @@ export function Header({
         <div className="flex flex-col gap-2 border-t border-ink-200/70 py-2.5 dark:border-ink-800/70 sm:flex-row sm:items-center sm:justify-between">
           <IndexSelector value={index} onChange={onIndexChange} />
           <p className="text-[11px] text-ink-500 dark:text-ink-400 sm:text-xs">
-            <span className="font-medium text-ink-600 dark:text-ink-300">{meta.label}</span> · top {meta.topN} by index
-            weight · default multiplier{' '}
-            <span className="font-medium tabular-nums text-ink-600 dark:text-ink-300">
-              ×{meta.defaultMultiplier.toFixed(2)}
-            </span>
+            <span className="font-medium text-ink-600 dark:text-ink-300">{meta.label}</span> · {meta.description}
           </p>
         </div>
       </div>

@@ -46,10 +46,8 @@ export interface IndexMeta {
   slug: string;
   /** One-line description for the selector. */
   description: string;
-  /** Number of top-weighted companies the strategy uses. */
-  topN: number;
-  /** Default multiplier for the index. */
-  defaultMultiplier: number;
+  /** Minimum number of validated constituents this index requires. */
+  minConstituents: number;
   /** Official PSX constituents page. */
   psxUrl: string;
   /** Label describing the bundled snapshot. */

@@ -14,8 +14,6 @@ export interface ImportAnalysis {
   warnings: string[];
   /** Every valid, de-duplicated constituent, sorted by weightage (desc). */
   all: Constituent[];
-  /** Top N constituents for the selected index (what the calculator uses). */
-  selected: Constituent[];
   rowsRead: number;
   rowsSkipped: number;
   skipped: SkippedRow[];
@@ -185,13 +183,12 @@ export function analyzeConstituents(
 
   valid.sort((a, b) => (b.weightage !== a.weightage ? b.weightage - a.weightage : a.ticker.localeCompare(b.ticker)));
   const totalWeightage = Math.round(valid.reduce((sum, c) => sum + c.weightage, 0) * 100) / 100;
-  const selected = valid.slice(0, meta.topN);
 
   if (valid.length === 0) {
     errors.push('No valid rows found. Check that the file has ticker, company name, sector and weightage columns.');
-  } else if (valid.length < meta.topN) {
+  } else if (valid.length < meta.minConstituents) {
     errors.push(
-      `Only ${valid.length} valid ${valid.length === 1 ? 'company' : 'companies'} found — the ${meta.label} strategy needs at least ${meta.topN} (top ${meta.topN} by weightage).`,
+      `Only ${valid.length} valid ${valid.length === 1 ? 'company' : 'companies'} found — ${meta.label} needs at least ${meta.minConstituents} constituents.`,
     );
   }
 
@@ -216,7 +213,6 @@ export function analyzeConstituents(
     errors,
     warnings,
     all: valid,
-    selected,
     rowsRead: context?.rowsRead ?? inputRows.length,
     rowsSkipped: skipped.length,
     skipped,
@@ -234,7 +230,6 @@ export function analyzeTable(rows: readonly string[][], meta: IndexMeta): Import
       errors: ['The file appears to be empty.'],
       warnings: [],
       all: [],
-      selected: [],
       rowsRead: 0,
       rowsSkipped: 0,
       skipped: [],
@@ -253,7 +248,6 @@ export function analyzeTable(rows: readonly string[][], meta: IndexMeta): Import
       ],
       warnings: [],
       all: [],
-      selected: [],
       rowsRead: nonEmpty.length,
       rowsSkipped: 0,
       skipped: [],

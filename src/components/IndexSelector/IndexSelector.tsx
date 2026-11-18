@@ -32,14 +32,6 @@ export function IndexSelector({ value, onChange }: IndexSelectorProps) {
             )}
           >
             <span className="text-sm font-semibold tracking-tight">{meta.label}</span>
-            <span
-              className={cn(
-                'hidden text-[10px] font-medium uppercase tracking-wide sm:inline',
-                active ? 'text-brand-600 dark:text-brand-400' : 'text-ink-400 dark:text-ink-500',
-              )}
-            >
-              Top {meta.topN}
-            </span>
           </button>
         );
       })}

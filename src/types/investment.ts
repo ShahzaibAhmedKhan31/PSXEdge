@@ -57,4 +57,9 @@ export interface AllocationFilter {
   search: string;
   /** "all" or an exact PSX sector name. */
   sector: string;
+  /**
+   * Tickers the user unchecked in the company checklist (Excel-style filter).
+   * They are removed from the table and the multiplier renormalises the rest.
+   */
+  excluded?: readonly string[];
 }

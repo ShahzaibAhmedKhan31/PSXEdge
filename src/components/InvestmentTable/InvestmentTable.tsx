@@ -4,7 +4,7 @@ import { cn } from '../../lib/cn';
 import { formatPKR } from '../../utils/currencyFormatter';
 import { formatPercent } from '../../utils/percentageFormatter';
 import type { IndexMeta } from '../../types';
-import type { AllocationFilter, AllocationRow, InvestmentTotals } from '../../types/investment';
+import type { AllocationFilter, AllocationRow, InvestmentTotals, RankedConstituent } from '../../types/investment';
 import { AllocationFilters } from '../AllocationFilters/AllocationFilters';
 
 /** Each header cell is sticky individually — sticky on `<tr>` is unreliable. */
@@ -19,6 +19,8 @@ interface InvestmentTableProps {
   onFilterChange: (filter: AllocationFilter) => void;
   sectors: readonly string[];
   totalCount: number;
+  /** Companies matching the shortlist/sector/search filters, before the company checklist. */
+  companies: readonly RankedConstituent[];
 }
 
 export function InvestmentTable({
@@ -29,6 +31,7 @@ export function InvestmentTable({
   onFilterChange,
   sectors,
   totalCount,
+  companies,
 }: InvestmentTableProps) {
   const { maxAllocation, totalOriginalWeightage } = useMemo(() => {
     return {
@@ -61,6 +64,7 @@ export function InvestmentTable({
         sectors={sectors}
         totalCount={totalCount}
         visibleCount={rows.length}
+        companies={companies}
       />
 
       <div className="max-h-[560px] overflow-auto">

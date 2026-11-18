@@ -50,8 +50,10 @@ export function filterConstituents(
     filter.topN === 'all' ? ranked.length : Math.max(1, Math.floor(Number(filter.topN) || ranked.length));
   const term = filter.search.trim().toLowerCase();
   const sector = filter.sector.trim().toLowerCase();
+  const excluded = new Set((filter.excluded ?? []).map((ticker) => ticker.trim().toUpperCase()));
 
   return ranked.slice(0, limit).filter((company) => {
+    if (excluded.has(company.ticker.toUpperCase())) return false;
     if (sector && sector !== 'all' && company.sector.toLowerCase() !== sector) return false;
     if (!term) return true;
     return (
@@ -168,9 +170,16 @@ export function computeNormalisedBreakdown(
   return { rows, totals };
 }
 
-/** Default filter: the whole index, no drill-down. */
+/** Default filter: the whole index, no drill-down, nothing unchecked. */
 export function createDefaultFilter(): AllocationFilter {
-  return { topN: 'all', search: '', sector: 'all' };
+  return { topN: 'all', search: '', sector: 'all', excluded: [] };
+}
+
+/** Toggle one ticker in the exclusion list used by the company checklist. */
+export function toggleExcluded(excluded: readonly string[], ticker: string): string[] {
+  const upper = ticker.toUpperCase();
+  const has = excluded.some((value) => value.toUpperCase() === upper);
+  return has ? excluded.filter((value) => value.toUpperCase() !== upper) : [...excluded, upper];
 }
 
 /** Human readable description of the active selection (used in UI + Excel). */
@@ -183,5 +192,13 @@ export function describeFilter(filter: AllocationFilter, totalCount: number): st
   }
   if (filter.sector && filter.sector !== 'all') parts.push(`sector: ${filter.sector}`);
   if (filter.search.trim()) parts.push(`search: “${filter.search.trim()}”`);
+  const excluded = filter.excluded ?? [];
+  if (excluded.length > 0) {
+    const preview = excluded.slice(0, 3).join(', ');
+    const more = excluded.length > 3 ? `, +${excluded.length - 3} more` : '';
+    parts.push(
+      `excluding ${excluded.length} ${excluded.length === 1 ? 'company' : 'companies'} (${preview}${more})`,
+    );
+  }
   return parts.join(' · ');
 }

@@ -31,6 +31,8 @@ describe('Dashboard render', () => {
     expect(html).toContain('Top 20');
     expect(html).toContain('All sectors');
     expect(html).toContain('Search company or ticker');
+    // The Excel-style company checklist is mounted (its panel opens on click).
+    expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain('Bundled snapshot');
   });
 });

@@ -15,6 +15,7 @@ import {
   rankConstituents,
   roundMoney,
   sectorOptions,
+  toggleExcluded,
 } from './investmentCalculator';
 
 function makeCompanies(weights: number[]): Constituent[] {
@@ -115,6 +116,62 @@ describe('filterConstituents', () => {
 
   it('returns an empty list when nothing matches', () => {
     expect(filterConstituents(ranked, { topN: 'all', sector: 'all', search: 'zzz' })).toEqual([]);
+  });
+});
+
+describe('company checklist (exclusions)', () => {
+  const ranked = rankConstituents([
+    { ticker: 'FFC', companyName: 'Fauji Fertilizer Company', sector: 'Fertilizer', weightage: 60 },
+    { ticker: 'UBL', companyName: 'United Bank Limited', sector: 'Commercial Banks', weightage: 20 },
+    { ticker: 'LUCK', companyName: 'Lucky Cement', sector: 'Cement', weightage: 20 },
+  ]);
+
+  it('removes unchecked tickers from the visible list', () => {
+    const visible = filterConstituents(ranked, { topN: 'all', sector: 'all', search: '', excluded: ['UBL'] });
+    expect(visible.map((company) => company.ticker)).toEqual(['FFC', 'LUCK']);
+  });
+
+  it('renormalises the multiplier over the companies that remain', () => {
+    const { rows, totals } = computeNormalisedBreakdown(
+      filterConstituents(ranked, { topN: 'all', sector: 'all', search: '', excluded: ['UBL'] }),
+      100_000,
+    );
+    expect(totals.multiplier).toBeCloseTo(100 / 80, 12);
+    expect(totals.adjustedWeightage).toBe(100);
+    expect(rows.map((row) => row.allocationRounded)).toEqual([75_000, 25_000]);
+    expect(totals.allocatedAmount).toBe(100_000);
+  });
+
+  it('composes with the shortlist and drill-down filters', () => {
+    const visible = filterConstituents(ranked, {
+      topN: 2,
+      sector: 'all',
+      search: '',
+      excluded: ['FFC'],
+    });
+    // UBL and LUCK both weigh 20, so the ticker tiebreaker puts LUCK at rank 2.
+    expect(visible.map((company) => company.ticker)).toEqual(['LUCK']);
+  });
+
+  it('toggles tickers case-insensitively without mutating the input', () => {
+    const excluded: string[] = [];
+    const onceAdded = toggleExcluded(excluded, 'ubl');
+    expect(onceAdded).toEqual(['UBL']);
+    expect(excluded).toEqual([]);
+    expect(toggleExcluded(onceAdded, 'UBL')).toEqual([]);
+  });
+
+  it('describes the exclusion in the filter summary', () => {
+    expect(
+      describeFilter({ topN: 'all', sector: 'all', search: '', excluded: ['UBL', 'LUCK'] }, 3),
+    ).toBe('All 3 companies · excluding 2 companies (UBL, LUCK)');
+    expect(describeFilter({ topN: 'all', sector: 'all', search: '', excluded: ['UBL'] }, 3)).toBe(
+      'All 3 companies · excluding 1 company (UBL)',
+    );
+  });
+
+  it('defaults to nothing excluded', () => {
+    expect(createDefaultFilter().excluded).toEqual([]);
   });
 });
 

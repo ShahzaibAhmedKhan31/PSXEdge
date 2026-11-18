@@ -47,6 +47,8 @@ export interface ExportParams {
   filterSummary: string;
   /** Total constituents in the dataset, so the export can show "20 of 100". */
   totalConstituents: number;
+  /** Tickers removed with the company checklist. */
+  excludedCompanies?: readonly string[];
   generatedAt?: Date;
 }
 
@@ -92,6 +94,7 @@ export async function createInvestmentWorkbook({
   breakdown,
   filterSummary,
   totalConstituents,
+  excludedCompanies = [],
   generatedAt,
 }: ExportParams) {
   const ExcelJS = await loadExcelJS();
@@ -179,6 +182,9 @@ export async function createInvestmentWorkbook({
   addRow('Selection', filterSummary, { wrap: true });
   addRow('Weighting Method', 'Auto-normalised — adjusted weights total 100%');
   addRow('Constituents Included', `${rows.length} of ${totalConstituents}`);
+  if (excludedCompanies.length > 0) {
+    addRow('Unchecked Companies', excludedCompanies.join(', '), { wrap: true });
+  }
   addRow('Data Source', dataset.sourceLabel);
   addRow('Data Retrieval Date', formatDateTime(dataset.retrievedAt));
   addRow('Dataset Type', originLabel(dataset.origin));

@@ -53,6 +53,10 @@ Investment (PKR)   = Total investment × (Adjusted weightage ÷ 100)
 - **Shortlist filter:** Top 10 / 15 / 20 / 30 / 50 or all companies.
 - **Drill-down filter:** sector dropdown plus a case-insensitive search across ticker, company name and sector. Filters
   compose (e.g. *Top 20 → Commercial Banks → "bank"*), and the multiplier normalises the remaining companies.
+- **Company checklist:** the **Companies** button opens an Excel-style list with a checkbox per constituent (plus
+  its own find box and All/None shortcuts). Unchecking a company removes it from the table straight away and the
+  multiplier rebalances over the companies that remain — the visible adjusted weights still total 100%. Unchecked
+  tickers persist per index, are listed in the Excel summary, and are cleared by **Reset**.
 - Rows are always sorted by **original** weightage, descending, with rank from the full index.
 - The dashboard shows the budget, total adjusted weightage (100%), total allocated and remaining cash. Over-allocation
   can no longer occur because the normalised weights never exceed 100%.
@@ -187,8 +191,8 @@ PSXEdge_KSE100_Investment_Breakdown_2026-11-17.xlsx
 PSXEdge_KMI30_Investment_Breakdown_2026-11-17.xlsx
 ```
 
-**Worksheet 1 — Investment Summary:** application name, selected index, the active selection (shortlist + drill-down),
-weighting method, constituents included (e.g. *20 of 100*), data source, retrieval date, dataset type, investment
+**Worksheet 1 — Investment Summary:** application name, selected index, the active selection (shortlist + drill-down +
+unchecked companies), weighting method, constituents included (e.g. *20 of 100*), data source, retrieval date, dataset type, investment
 amount, the auto-derived multiplier, total adjusted weightage, total allocated, remaining cash and a generation note.
 
 **Worksheet 2 — Company Breakdown:** rank, ticker, company name, sector, original weightage, multiplier, adjusted
@@ -213,6 +217,7 @@ src/
 │   ├── InvestmentSummary/InvestmentSummary.tsx
 │   ├── InvestmentTable/InvestmentTable.tsx
 │   ├── AllocationFilters/AllocationFilters.tsx  # top-N shortlist + sector/search drill-down
+│   ├── AllocationFilters/CompanyFilterPopover.tsx # Excel-style include/uncheck checklist
 │   ├── MultiplierPanel/MultiplierPanel.tsx      # read-only derived multiplier
 │   ├── ThemeToggle/ThemeToggle.tsx
 │   └── Toast/Toast.tsx
@@ -248,21 +253,22 @@ State stays local: a few hooks plus React state in the dashboard. No Redux, no r
 npm test
 ```
 
-The Vitest suite (111 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
+The Vitest suite (117 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
 parser and the Excel workbook (including a serialisation round-trip):
 
 1. Ranking: full 100 / 30 constituent lists, descending weightage, ticker tiebreak, non-mutating
 2. Shortlist + drill-down filtering: top-N applied first, sector and case-insensitive search composed on top
-3. Auto multiplier: `100 ÷ Σ visible weightages`, 0 for an empty selection, rebalanced after filtering
-4. Adjusted weights total exactly 100% for the whole index and for every filtered subset
-5. Largest-remainder apportionment: rounded rows always sum to the budget, including awkward amounts
-6. Empty / negative / NaN inputs produce zeros rather than NaN
-7. Display rounding totals equal the sum of the table rows
-8. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
-9. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
-10. Excel worksheet names, summary values (selection, “20 of 100”, multiplier, 100% total), row counts, formats,
+3. Company checklist: unchecking tickers removes them, renormalises the multiplier and survives composition
+4. Auto multiplier: `100 ÷ Σ visible weightages`, 0 for an empty selection, rebalanced after filtering
+5. Adjusted weights total exactly 100% for the whole index and for every filtered subset
+6. Largest-remainder apportionment: rounded rows always sum to the budget, including awkward amounts
+7. Empty / negative / NaN inputs produce zeros rather than NaN
+8. Display rounding totals equal the sum of the table rows
+9. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
+10. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
+11. Excel worksheet names, summary values (selection, “20 of 100”, multiplier, 100% total), row counts, formats,
     filters, totals row and a serialisation round-trip
-11. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
+12. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
     (not thrown), feeds are preferred, invalid feed data falls back, and both indices refresh together with partial
     success preserved
 

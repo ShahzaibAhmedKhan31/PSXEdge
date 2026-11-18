@@ -1,6 +1,7 @@
 import { RotateCcw, Search, X } from 'lucide-react';
 import { cn } from '../../lib/cn';
-import type { AllocationFilter, TopNSelection } from '../../types/investment';
+import type { AllocationFilter, RankedConstituent, TopNSelection } from '../../types/investment';
+import { CompanyFilterPopover } from './CompanyFilterPopover';
 
 const CANDIDATE_PRESETS = [10, 15, 20, 30, 50] as const;
 
@@ -8,8 +9,12 @@ interface AllocationFiltersProps {
   filter: AllocationFilter;
   onChange: (filter: AllocationFilter) => void;
   sectors: readonly string[];
+  /** Whole index, ranked. */
   totalCount: number;
+  /** Rows currently shown in the table. */
   visibleCount: number;
+  /** Companies matching the shortlist/sector/search filters, before the checkbox filter. */
+  companies: readonly RankedConstituent[];
 }
 
 function presetLabel(value: TopNSelection): string {
@@ -26,12 +31,15 @@ export function AllocationFilters({
   sectors,
   totalCount,
   visibleCount,
+  companies,
 }: AllocationFiltersProps) {
   const presets: TopNSelection[] = [
     'all',
     ...CANDIDATE_PRESETS.filter((preset) => preset < totalCount),
   ];
-  const isDefault = filter.topN === 'all' && filter.sector === 'all' && filter.search.trim() === '';
+  const excluded = filter.excluded ?? [];
+  const isDefault =
+    filter.topN === 'all' && filter.sector === 'all' && filter.search.trim() === '' && excluded.length === 0;
 
   const update = (patch: Partial<AllocationFilter>) => onChange({ ...filter, ...patch });
 
@@ -45,7 +53,11 @@ export function AllocationFilters({
           </span>
         </h2>
         <p className="text-[11px] text-ink-500 dark:text-ink-400">
-          {isDefault ? 'Showing every constituent' : 'Filters applied — multiplier rebalanced'}
+          {isDefault
+            ? 'Showing every constituent'
+            : excluded.length > 0
+              ? `${excluded.length} ${excluded.length === 1 ? 'company' : 'companies'} unchecked · multiplier rebalanced`
+              : 'Filters applied — multiplier rebalanced'}
         </p>
       </div>
 
@@ -107,7 +119,7 @@ export function AllocationFilters({
             ) : null}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <label htmlFor="sector-filter" className="sr-only">
               Filter by sector
             </label>
@@ -125,10 +137,17 @@ export function AllocationFilters({
               ))}
             </select>
 
+            <CompanyFilterPopover
+              companies={companies}
+              excluded={excluded}
+              visibleCount={visibleCount}
+              onChange={(next) => update({ excluded: next })}
+            />
+
             {!isDefault ? (
               <button
                 type="button"
-                onClick={() => onChange({ topN: 'all', sector: 'all', search: '' })}
+                onClick={() => onChange({ topN: 'all', sector: 'all', search: '', excluded: [] })}
                 className="inline-flex h-8 items-center gap-1 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-medium text-ink-600 transition-colors hover:border-ink-300 hover:bg-ink-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-300 dark:hover:bg-ink-800"
               >
                 <RotateCcw className="h-3 w-3" aria-hidden="true" />

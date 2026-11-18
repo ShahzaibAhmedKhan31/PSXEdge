@@ -44,6 +44,9 @@ function initialFilters(): Record<IndexKey, AllocationFilter> {
       topN: isTopNSelection(value?.topN) ? value.topN : 'all',
       sector: typeof value?.sector === 'string' && value.sector.trim() !== '' ? value.sector : 'all',
       search: '',
+      excluded: Array.isArray(value?.excluded)
+        ? [...new Set(value.excluded.filter((ticker): ticker is string => typeof ticker === 'string'))]
+        : [],
     };
   };
   return { KSE100: build('KSE100'), KMI30: build('KMI30') };
@@ -101,6 +104,11 @@ export function Dashboard() {
     return next;
   }, [filters, index, ranked.length, sectors]);
 
+  // Candidates = what the shortlist/sector/search allow; the checklist then excludes tickers.
+  const candidates = useMemo(
+    () => filterConstituents(ranked, { ...filter, excluded: [] }),
+    [ranked, filter],
+  );
   const visible = useMemo(() => filterConstituents(ranked, filter), [ranked, filter]);
   const selectedWeightTotal = useMemo(
     () => visible.reduce((sum, constituent) => sum + constituent.weightage, 0),
@@ -167,6 +175,7 @@ export function Dashboard() {
         breakdown,
         filterSummary: describeFilter(filter, ranked.length),
         totalConstituents: ranked.length,
+        excludedCompanies: filter.excluded ?? [],
       });
       showToast('success', 'Excel workbook exported', fileName);
     } catch (error) {
@@ -247,6 +256,7 @@ export function Dashboard() {
             onFilterChange={handleFilterChange}
             sectors={sectors}
             totalCount={ranked.length}
+            companies={candidates}
           />
         </div>
 

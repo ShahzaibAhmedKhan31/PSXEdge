@@ -128,6 +128,7 @@ describe('Excel export', () => {
       breakdown: kseBreakdown,
       filterSummary: 'Top 20 of 100 by weightage · sector: Commercial Banks',
       totalConstituents: 100,
+      excludedCompanies: ['FFC', 'UBL'],
       generatedAt,
     });
     const sheet = workbook.getWorksheet('Company Breakdown');
@@ -138,5 +139,6 @@ describe('Excel export', () => {
     expect(valueFor('Selected Index')).toBe('KSE-100');
     expect(valueFor('Selection')).toBe('Top 20 of 100 by weightage · sector: Commercial Banks');
     expect(valueFor('Constituents Included')).toBe('100 of 100');
+    expect(valueFor('Unchecked Companies')).toBe('FFC, UBL');
   });
 });

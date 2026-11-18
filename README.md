@@ -4,15 +4,16 @@
 
 PSXEdge is a lightweight, fully client-side investment allocation calculator for the Pakistan Stock Exchange's
 **KSE-100** and **KMI-30** indices. Pick an index, enter a budget in PKR, tune the weighting multiplier, and see the
-allocation per company instantly. Export the whole plan to a professionally formatted Excel workbook — no backend, no
-accounts, no servers.
+allocation per company instantly. Export the whole plan to a professionally formatted Excel workbook — all calculations
+run in your browser, with no accounts, database or application server.
 
 - **React 19 + TypeScript + Vite**
 - **Tailwind CSS** (light & dark themes)
 - **Lucide React** icons
 - **ExcelJS** for in-browser `.xlsx` generation (lazy-loaded)
 - **localStorage** for preferences and the last validated dataset
-- Deploys as a static site on **Vercel** (free tier)
+- Deploys as a static site on **Vercel** (free tier), with one host-level rewrite that proxies PSX so **Refresh works in
+  production** — see [the PSX proxy](#the-psx-proxy-why-it-exists-and-what-it-costs)
 
 ---
 
@@ -67,30 +68,45 @@ PSX publishes index constituents and weightages on its Data Portal:
 - KMI-30: <https://dps.psx.com.pk/indices/KMI30>
 
 Those pages are server-rendered HTML and the upstream JSON routes (for example
-`dps.psx.com.pk/timeseries/...`) **do not send `Access-Control-Allow-Origin` headers**. A normal browser therefore
-cannot read them, and PSXEdge deliberately does **not** bypass CORS with a proxy, scraper or backend. Instead it ships a
-clearly labelled snapshot and gives you two ways to refresh it.
+`dps.psx.com.pk/timeseries/...`) **do not send `Access-Control-Allow-Origin` headers**, so a browser cannot read them
+directly. To make **Refresh** work in production, the deployed app requests the same data through a **same-origin proxy**:
+a single rewrite in `vercel.json` forwards `/psx/*` to `https://dps.psx.com.pk/*`. There is no proxy server code, no
+extra service and no new dependency — the host forwards the request and the response is same-origin, so CORS never
+applies. The Vite dev/preview server mirrors the rewrite locally so behaviour is identical on `localhost`.
 
-### “Why do I get a CORS error when I click Refresh?”
+Refresh resolves data in this order, stopping at the first success:
 
-You will see something like this in the browser console:
+1. **Custom feed** (if you configured one) — a CORS-enabled JSON URL you host.
+2. **PSX proxy** — `/psx/indices/KSE100` or `/psx/indices/KMI30`, forwarded to PSX.
+3. **Direct PSX request** — kept for completeness; normally blocked by CORS in a browser.
+4. **Last validated dataset** — nothing is overwritten on failure.
+
+### The PSX proxy: why it exists and what it costs
+
+The original brief asked for a 100% static frontend with no backend. A browser-only app can never read PSX directly, so
+the refresh button could never return live data. The proxy is the smallest possible change that fixes it: **one rewrite
+rule in `vercel.json`**, executed by the host you already deploy to. Trade-offs, stated plainly:
+
+- The app is still a static Vite build; there is no server application, database, secret or paid service.
+- Live refresh is **host-dependent**: it works on Vercel and locally (Vite proxy). On a plain static host without an
+  equivalent rewrite, the proxy 404s and the app falls back to the bundled/imported dataset.
+- Requests are forwarded to PSX, so PSX's terms of use and rate limits apply. PSXEdge refreshes only on demand (and at
+  most once automatically per session when a dataset is stale), never on a timer.
+- If you would rather keep the deployment strictly static, delete the `rewrites` block from `vercel.json`; the app
+  continues to work with the bundled snapshot and manual import.
+
+### “Why do I still see a CORS error in the console?”
+
+Only when the proxy is unavailable — for example on a static host without the rewrite, behind a restrictive network, or
+during a PSX outage. The browser then falls back to a direct request, and PSX's missing header produces:
 
 ```
-Access to fetch at 'https://dps.psx.com.pk/indices/KMI30' from origin 'http://localhost:5173'
+Access to fetch at 'https://dps.psx.com.pk/indices/KMI30' from origin 'https://your-app.vercel.app'
 has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
 ```
 
-That is the **expected** result and not a bug:
-
-1. The browser sends the request and PSX's server answers with its HTML.
-2. Because the response has no `Access-Control-Allow-Origin` header, the browser refuses to expose the body to
-   JavaScript and logs the warning. The app's `fetch()` rejects with a `TypeError`.
-3. PSXEdge catches that, keeps the last validated dataset untouched, and tells you what happened.
-
-No frontend-only code can remove that console line — it is emitted by the browser itself before your code runs. Reading
-PSX directly would require a server-side proxy, which this project intentionally does not have. The in-app
-**“Live refresh, CORS and data sources”** panel documents this, and the alternatives are below. If you connect a
-CORS-enabled feed, Refresh uses that instead and no PSX request is made.
+That is the browser's own message, emitted before your code runs; PSXEdge catches the rejection, keeps the last
+validated dataset untouched, and shows the attempt log. When the proxy does respond, no such message appears.
 
 ### 1. Bundled snapshot (used by default)
 
@@ -123,9 +139,10 @@ Required columns (headers are matched flexibly, case-insensitive):
 
 ### 3. Refresh button / CORS-enabled feed
 
-**Refresh** first tries a feed URL you configure under *Advanced* in the import dialog, then the official PSX page. If
-both fail (the PSX one normally will, because of CORS), the last validated dataset stays in place, the attempt log is
-shown, and nothing is overwritten.
+**Refresh** tries a feed URL you configure under *Advanced* in the import dialog, then the same-origin `/psx` proxy, then
+a direct PSX request. If all fail, the last validated dataset stays in place, the attempt log is shown, and nothing is
+overwritten. A successful proxy fetch stores the dataset as **Live data** with the retrieval timestamp; exports then
+record that source too.
 
 A custom feed must be a CORS-enabled JSON endpoint you control (a static file on GitHub Pages works well):
 
@@ -220,7 +237,7 @@ State stays local: a few hooks plus React state in the dashboard. No Redux, no r
 npm test
 ```
 
-The Vitest suite (85 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
+The Vitest suite (90 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
 parser and the Excel workbook (including a serialisation round-trip):
 
 1. KSE-100 default multiplier is 1.5, KMI-30 is 1.1
@@ -231,7 +248,8 @@ parser and the Excel workbook (including a serialisation round-trip):
 6. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
 7. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
 8. Excel worksheet names, summary values, row counts, number formats, filters, totals row
-9. Refresh behaviour: CORS failures are classified (not thrown), feeds are preferred, invalid feed data falls back
+9. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
+   (not thrown), feeds are preferred, invalid feed data falls back
 
 Manual checks that complement the suite: instant updates while typing, index switching, dark-mode persistence, import
 of a real PSX file, cached-dataset recovery after reload, and responsive layout.
@@ -240,10 +258,12 @@ of a real PSX file, cached-dataset recovery after reload, and responsive layout.
 
 ## Deploying to Vercel
 
-The repository already includes a `vercel.json` with the Vite preset, build command and SPA rewrite.
+The repository already includes a `vercel.json` with the Vite preset, build command and the `/psx` rewrite that powers
+live refresh.
 
 **Dashboard:** push to GitHub → *Add New… → Project* → import the repository → framework preset **Vite** →
-build command `npm run build` → output directory `dist` → **Deploy**. No environment variables, no backend.
+build command `npm run build` → output directory `dist` → **Deploy**. No environment variables, no application server;
+`vercel.json` supplies the build settings and the `/psx` proxy rewrite.
 
 **CLI:**
 
@@ -253,7 +273,9 @@ vercel        # preview deployment
 vercel --prod # production deployment
 ```
 
-The result is a static site; every calculation runs in the visitor's browser.
+The result is a static site; every calculation runs in the visitor's browser, and Vercel's rewrite forwards PSX requests
+for the Refresh button. Deploying to a different static host? Either add an equivalent `/psx/*` proxy rule there, or
+remove the rewrite and rely on CSV/XLSX import — the app detects a missing proxy and falls back automatically.
 
 ---
 

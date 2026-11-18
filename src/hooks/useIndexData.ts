@@ -73,7 +73,11 @@ export function useIndexData() {
         if (outcome.dataset) {
           saveCachedDataset(outcome.dataset);
           setDatasets((current) => ({ ...current, [outcome.dataset!.index]: outcome.dataset! }));
-          return { ok: true, message: `${meta.label} data updated.`, corsBlocked: false };
+          return {
+            ok: true,
+            message: `${meta.label} data refreshed — ${outcome.dataset.sourceLabel}.`,
+            corsBlocked: false,
+          };
         }
 
         return {

@@ -17,10 +17,25 @@ const REQUEST_TIMEOUT_MS = 8000;
 
 /**
  * Shown in the UI and docs. PSX's data portal answers with HTML/JSON but without
- * an `Access-Control-Allow-Origin` header, so no website can read it directly.
+ * an `Access-Control-Allow-Origin` header, so browsers cannot read a direct
+ * cross-origin request. A same-origin proxy avoids the restriction entirely.
  */
 export const CORS_SUMMARY =
-  "PSX's Data Portal (dps.psx.com.pk) does not send an Access-Control-Allow-Origin header, so browsers block every cross-origin request to it.";
+  "PSX's Data Portal (dps.psx.com.pk) does not send an Access-Control-Allow-Origin header, so browsers block direct cross-origin requests to it.";
+
+/**
+ * Same-origin prefix that is proxied to PSX.
+ *
+ * - On Vercel this is a rewrite in `vercel.json` (`/psx/:path*` → dps.psx.com.pk).
+ * - Locally the Vite dev/preview server proxies the same prefix.
+ *
+ * No server code is involved: the host forwards the request, so the app stays a
+ * static frontend and the response is same-origin.
+ */
+export const PSX_PROXY_PREFIX = '/psx';
+
+export const PROXY_UNAVAILABLE_MESSAGE =
+  'Proxy not available from this host. The /psx rewrite is configured for Vercel (and the Vite dev server).';
 
 export interface RefreshOutcome {
   dataset: IndexDataset | null;
@@ -129,10 +144,48 @@ async function fetchWithTimeout(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Pr
   }
 }
 
+/** A table of text cells extracted from PSX's index page. */
+export interface PsxTableData {
+  headers: string[];
+  rows: string[][];
+}
+
+/**
+ * Pure extraction of constituents from a PSX-style table (SYMBOL / NAME / IDX WTG (%)).
+ * Split out from the DOM parsing so it can be unit-tested without a browser.
+ */
+export function constituentsFromTable(table: PsxTableData): Constituent[] {
+  const headers = table.headers.map((header) => String(header ?? '').trim().toLowerCase());
+  const symbolIndex = headers.findIndex((label) => /symbol|ticker/.test(label));
+  const nameIndex = headers.findIndex((label) => /^name$|company/.test(label));
+  const weightIndex = headers.findIndex((label) => /wtg|weight/.test(label));
+  if (symbolIndex === -1 || weightIndex === -1) return [];
+
+  const lookup = sectorLookup();
+  const constituents: Constituent[] = [];
+
+  for (const cells of table.rows) {
+    if (!Array.isArray(cells) || cells.length <= weightIndex) continue;
+    const ticker = normalizeTicker(cells[symbolIndex] ?? '');
+    const weightage = parseWeightage(cells[weightIndex] ?? '');
+    if (!ticker || weightage === null || weightage <= 0 || weightage > 100) continue;
+    const known = lookup.get(ticker);
+    const companyName = (nameIndex >= 0 ? String(cells[nameIndex] ?? '').trim() : '') || known?.companyName || ticker;
+    constituents.push({
+      ticker,
+      companyName,
+      sector: known?.sector ?? 'Unclassified',
+      weightage,
+    });
+  }
+
+  return constituents;
+}
+
 /**
  * Parse PSX's server-rendered index page (dps.psx.com.pk/indices/...).
- * Kept defensive: PSX can change markup at any time, and a browser will
- * normally never get this far because the endpoint has no CORS headers.
+ * Used for both the proxied response and a (normally CORS-blocked) direct fetch.
+ * Kept defensive: PSX can change markup at any time.
  */
 export function parsePsxIndexHtml(html: string): Constituent[] {
   if (typeof DOMParser === 'undefined') return [];
@@ -142,38 +195,69 @@ export function parsePsxIndexHtml(html: string): Constituent[] {
     const allRows = Array.from(table.querySelectorAll('tr'));
     if (allRows.length < 2) continue;
 
-    const headerCells = Array.from(allRows[0].querySelectorAll('th,td')).map((cell) =>
-      (cell.textContent ?? '').trim().toLowerCase(),
-    );
-    const symbolIndex = headerCells.findIndex((label) => /symbol|ticker/.test(label));
-    const nameIndex = headerCells.findIndex((label) => /^name$|company/.test(label));
-    const weightIndex = headerCells.findIndex((label) => /wtg|weight/.test(label));
-    if (symbolIndex === -1 || weightIndex === -1) continue;
+    const headers = Array.from(allRows[0].querySelectorAll('th,td')).map((cell) => (cell.textContent ?? '').trim());
+    const rows = allRows
+      .slice(1)
+      .map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent ?? '').trim()));
 
-    const lookup = sectorLookup();
-    const constituents: Constituent[] = [];
-
-    for (const row of allRows.slice(1)) {
-      const cells = Array.from(row.querySelectorAll('td'));
-      if (cells.length <= weightIndex) continue;
-      const ticker = normalizeTicker(cells[symbolIndex]?.textContent ?? '');
-      const weightage = parseWeightage(cells[weightIndex]?.textContent ?? '');
-      if (!ticker || weightage === null || weightage <= 0 || weightage > 100) continue;
-      const known = lookup.get(ticker);
-      const companyName =
-        (nameIndex >= 0 ? cells[nameIndex]?.textContent?.trim() : undefined) ?? known?.companyName ?? ticker;
-      constituents.push({
-        ticker,
-        companyName,
-        sector: known?.sector ?? 'Unclassified',
-        weightage,
-      });
-    }
-
+    const constituents = constituentsFromTable({ headers, rows });
     if (constituents.length > 0) return constituents;
   }
 
   return [];
+}
+
+/** Map an official PSX index URL onto the same-origin proxy path. */
+export function proxyPathFor(meta: { psxUrl: string }): string {
+  try {
+    return `${PSX_PROXY_PREFIX}${new URL(meta.psxUrl).pathname}`;
+  } catch {
+    return PSX_PROXY_PREFIX;
+  }
+}
+
+/**
+ * Fetch the index page through the same-origin proxy. Because the URL is
+ * same-origin, no CORS header is needed and the browser exposes the HTML.
+ */
+async function attemptPsxProxy(index: IndexKey): Promise<{ dataset: IndexDataset | null; attempts: AttemptLog[] }> {
+  const meta = INDEX_META[index];
+  const path = proxyPathFor(meta);
+  const label = `PSX proxy (${path})`;
+
+  try {
+    const response = await fetchWithTimeout(path);
+    if (!response.ok) {
+      throw new Error(
+        response.status === 404
+          ? `${PROXY_UNAVAILABLE_MESSAGE} (HTTP 404)`
+          : `The proxy responded with HTTP ${response.status}.`,
+      );
+    }
+
+    const html = await response.text();
+    const parsed = parsePsxIndexHtml(html);
+    if (parsed.length === 0) {
+      throw new Error('The proxy responded, but no PSX constituent rows could be read.');
+    }
+
+    const analysis = analyzeConstituents(parsed, meta);
+    if (!analysis.ok) throw new Error(analysis.errors.join(' '));
+
+    const dataset = buildDataset({
+      index,
+      constituents: analysis.all,
+      origin: 'live',
+      sourceLabel: 'PSX Data Portal — live via same-origin proxy',
+      sourceUrl: meta.psxUrl,
+    });
+
+    return { dataset, attempts: [{ label, ok: true }] };
+  } catch (error) {
+    const failure = classifyFetchError(error);
+    // A same-origin proxy failure is never a CORS problem.
+    return { dataset: null, attempts: [{ label, ok: false, message: failure.message, corsBlocked: false }] };
+  }
 }
 
 export interface FetchErrorInfo {
@@ -311,6 +395,12 @@ export async function refreshIndexData(index: IndexKey, feedUrl = getCustomFeedU
     if (result.dataset) return { dataset: result.dataset, attempts, corsBlocked: false };
   }
 
+  const proxyResult = await attemptPsxProxy(index);
+  attempts.push(...proxyResult.attempts);
+  if (proxyResult.dataset) return { dataset: proxyResult.dataset, attempts, corsBlocked: false };
+
+  // Last resort: a direct request (only works if PSX ever adds CORS headers, or
+  // when the request is made from an environment that is not CORS-restricted).
   const psxResult = await attemptPsxPage(index);
   attempts.push(...psxResult.attempts);
   if (psxResult.dataset) return { dataset: psxResult.dataset, attempts, corsBlocked: false };

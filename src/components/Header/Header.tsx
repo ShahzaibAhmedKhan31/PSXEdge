@@ -64,7 +64,7 @@ export function Header({
               onClick={onRefresh}
               disabled={refreshing}
               aria-label="Refresh index data"
-              title="Fetch fresh data through the /psx proxy, then fall back to the last validated dataset."
+              title="Fetch fresh KSE-100 and KMI-30 data through the /psx proxy, then fall back to the last validated datasets."
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-ink-200 bg-white text-ink-600 transition-colors hover:bg-ink-50 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:cursor-wait disabled:opacity-70 dark:border-ink-800 dark:bg-ink-900 dark:text-ink-300 dark:hover:bg-ink-800 dark:hover:text-white"
             >
               <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} aria-hidden="true" />

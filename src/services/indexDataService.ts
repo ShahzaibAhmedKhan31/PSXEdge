@@ -1,4 +1,4 @@
-import { BUNDLED_SNAPSHOT_DATE, INDEX_META } from '../data/indexMeta';
+import { BUNDLED_SNAPSHOT_DATE, INDEX_KEYS, INDEX_META } from '../data/indexMeta';
 import { SAMPLE_KMI30 } from '../data/sampleKMI30';
 import { SAMPLE_KSE100 } from '../data/sampleKSE100';
 import { STORAGE_KEYS, readRaw, readJSON, removeKey, writeJSON } from '../lib/storage';
@@ -410,6 +410,53 @@ export async function refreshIndexData(index: IndexKey, feedUrl = getCustomFeedU
     attempts,
     corsBlocked: attempts.some((attempt) => attempt.corsBlocked === true),
   };
+}
+
+export interface MultiRefreshOutcome {
+  /** Datasets produced by this refresh, keyed by index. */
+  datasets: Partial<Record<IndexKey, IndexDataset>>;
+  /** Flat attempt log, labelled with the index each attempt belongs to. */
+  attempts: AttemptLog[];
+  corsBlocked: boolean;
+  /** Indices that produced a fresh, validated dataset. */
+  updated: IndexKey[];
+}
+
+/**
+ * Refresh every supported index in a single action.
+ *
+ * A custom feed is only applied to `activeIndex`: the documented JSON payload
+ * carries no index marker, so using it for both indices could attach KSE-100
+ * weights to KMI-30. The `/psx` proxy is index-specific, so it serves both.
+ */
+export async function refreshAllIndexData(
+  activeIndex: IndexKey,
+  feedUrl = getCustomFeedUrl(),
+): Promise<MultiRefreshOutcome> {
+  const results = await Promise.all(
+    INDEX_KEYS.map(async (key) => ({
+      key,
+      outcome: await refreshIndexData(key, key === activeIndex ? feedUrl : ''),
+    })),
+  );
+
+  const datasets: Partial<Record<IndexKey, IndexDataset>> = {};
+  const updated: IndexKey[] = [];
+  const attempts: AttemptLog[] = [];
+  let corsBlocked = false;
+
+  for (const { key, outcome } of results) {
+    if (outcome.dataset) {
+      datasets[key] = outcome.dataset;
+      updated.push(key);
+    }
+    for (const attempt of outcome.attempts) {
+      attempts.push({ ...attempt, label: `${INDEX_META[key].label} · ${attempt.label}` });
+    }
+    corsBlocked = corsBlocked || outcome.corsBlocked;
+  }
+
+  return { datasets, attempts, corsBlocked, updated };
 }
 
 /** Format an ISO date for display, e.g. "17 Nov 2026, 10:30". */

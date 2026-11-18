@@ -4,6 +4,7 @@ import {
   classifyFetchError,
   constituentsFromTable,
   proxyPathFor,
+  refreshAllIndexData,
   refreshIndexData,
 } from './indexDataService';
 
@@ -172,5 +173,61 @@ describe('refreshIndexData', () => {
     expect(outcome.attempts[0].message).toMatch(/needs at least 20/);
     expect(outcome.attempts[1].label).toContain('/psx/indices/KSE100');
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('refreshAllIndexData', () => {
+  it('refreshes KSE-100 and KMI-30 together through the proxy', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => '<html></html>' });
+    vi.stubGlobal('fetch', fetchMock);
+    installFakeDom([[PSX_HEADERS, ...PSX_ROWS]]);
+
+    const outcome = await refreshAllIndexData('KSE100', '');
+    expect(outcome.updated).toEqual(['KSE100', 'KMI30']);
+    expect(outcome.datasets.KSE100?.constituents).toHaveLength(20);
+    expect(outcome.datasets.KMI30?.constituents).toHaveLength(20);
+    expect(outcome.corsBlocked).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      '/psx/indices/KSE100',
+      '/psx/indices/KMI30',
+    ]);
+    expect(outcome.attempts).toHaveLength(2);
+    expect(outcome.attempts[0]).toMatchObject({ ok: true, label: 'KSE-100 · PSX proxy (/psx/indices/KSE100)' });
+    expect(outcome.attempts[1]).toMatchObject({ ok: true, label: 'KMI-30 · PSX proxy (/psx/indices/KMI30)' });
+  });
+
+  it('keeps the index that succeeded when the other fails', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/psx/indices/KMI30') return Promise.resolve({ ok: false, status: 404 });
+      if (url === '/psx/indices/KSE100') return Promise.resolve({ ok: true, text: async () => '<html></html>' });
+      return Promise.reject(new TypeError('Failed to fetch'));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    installFakeDom([[PSX_HEADERS, ...PSX_ROWS]]);
+
+    const outcome = await refreshAllIndexData('KSE100', '');
+    expect(outcome.updated).toEqual(['KSE100']);
+    expect(outcome.datasets.KSE100).toBeDefined();
+    expect(outcome.datasets.KMI30).toBeUndefined();
+    expect(outcome.corsBlocked).toBe(true);
+    expect(outcome.attempts).toHaveLength(3);
+    expect(outcome.attempts.some((a) => a.label.startsWith('KMI-30') && a.corsBlocked)).toBe(true);
+  });
+
+  it('applies a custom feed only to the active index', async () => {
+    const FEED = 'https://feeds.example.com/psx.json';
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === FEED) return Promise.resolve({ ok: true, json: async () => ({ constituents: feedRows }) });
+      return Promise.resolve({ ok: true, text: async () => '<html></html>' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    installFakeDom([[PSX_HEADERS, ...PSX_ROWS]]);
+
+    const outcome = await refreshAllIndexData('KMI30', FEED);
+    expect(outcome.updated).toEqual(['KSE100', 'KMI30']);
+    expect(outcome.datasets.KMI30?.sourceLabel).toMatch(/feeds\.example\.com/);
+    expect(outcome.datasets.KSE100?.sourceLabel).toMatch(/proxy/i);
+    expect(fetchMock.mock.calls.filter((call) => call[0] === FEED)).toHaveLength(1);
   });
 });

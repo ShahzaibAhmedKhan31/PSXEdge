@@ -124,13 +124,13 @@ export function Dashboard() {
       showToast(
         'info',
         'Proxy unavailable — PSX blocked the direct request',
-        'Refresh normally goes through the /psx proxy on Vercel. From this host it could not be reached, so the browser fell back to a direct request and PSX blocked it (no CORS header). Your last validated dataset is still in use — import a CSV/XLSX or connect a feed to update it.',
+        'Refresh normally goes through the /psx proxy on Vercel and updates both KSE-100 and KMI-30. From this host the proxy could not be reached, so the browser fell back to direct requests and PSX blocked them (no CORS header). Both datasets are unchanged — import a CSV/XLSX or connect a feed to update them.',
       );
     } else {
       showToast(
         'error',
         'Live refresh failed',
-        'Neither the /psx proxy nor the feed could be reached. Your last validated dataset is still in use — try again, or import a CSV/XLSX file.',
+        'Neither the /psx proxy nor the feed could be reached. Both datasets are unchanged — try again, or import a CSV/XLSX file.',
       );
     }
   }, [refresh, showToast]);

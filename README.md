@@ -76,10 +76,15 @@ applies. The Vite dev/preview server mirrors the rewrite locally so behaviour is
 
 Refresh resolves data in this order, stopping at the first success:
 
-1. **Custom feed** (if you configured one) — a CORS-enabled JSON URL you host.
+1. **Custom feed** (if you configured one) — a CORS-enabled JSON URL you host. Because the payload has no index
+   marker, it is applied to the selected index only.
 2. **PSX proxy** — `/psx/indices/KSE100` or `/psx/indices/KMI30`, forwarded to PSX.
 3. **Direct PSX request** — kept for completeness; normally blocked by CORS in a browser.
 4. **Last validated dataset** — nothing is overwritten on failure.
+
+**One click refreshes both indices.** Refresh fetches and validates KSE-100 *and* KMI-30 together, saves each dataset
+separately, and keeps whichever ones succeed; if only one index can be updated, the other keeps its previous
+dataset and the UI says so.
 
 ### The PSX proxy: why it exists and what it costs
 
@@ -139,9 +144,10 @@ Required columns (headers are matched flexibly, case-insensitive):
 
 ### 3. Refresh button / CORS-enabled feed
 
-**Refresh** tries a feed URL you configure under *Advanced* in the import dialog, then the same-origin `/psx` proxy, then
-a direct PSX request. If all fail, the last validated dataset stays in place, the attempt log is shown, and nothing is
-overwritten. A successful proxy fetch stores the dataset as **Live data** with the retrieval timestamp; exports then
+**Refresh** updates **both** the KSE-100 and KMI-30 datasets in one action. For each index it tries a feed URL you
+configure under *Advanced* in the import dialog (selected index only), then the same-origin `/psx` proxy, then a direct
+PSX request. If an index cannot be updated, its last validated dataset stays in place, the attempt log is shown, and
+nothing is overwritten. A successful proxy fetch stores the dataset as **Live data** with the retrieval timestamp; exports then
 record that source too.
 
 A custom feed must be a CORS-enabled JSON endpoint you control (a static file on GitHub Pages works well):
@@ -237,7 +243,7 @@ State stays local: a few hooks plus React state in the dashboard. No Redux, no r
 npm test
 ```
 
-The Vitest suite (90 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
+The Vitest suite (93 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
 parser and the Excel workbook (including a serialisation round-trip):
 
 1. KSE-100 default multiplier is 1.5, KMI-30 is 1.1
@@ -249,7 +255,8 @@ parser and the Excel workbook (including a serialisation round-trip):
 7. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
 8. Excel worksheet names, summary values, row counts, number formats, filters, totals row
 9. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
-   (not thrown), feeds are preferred, invalid feed data falls back
+   (not thrown), feeds are preferred, invalid feed data falls back, and both indices refresh together with partial
+   success preserved
 
 Manual checks that complement the suite: instant updates while typing, index switching, dark-mode persistence, import
 of a real PSX file, cached-dataset recovery after reload, and responsive layout.

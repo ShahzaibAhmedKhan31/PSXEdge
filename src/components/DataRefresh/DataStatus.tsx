@@ -127,7 +127,7 @@ export function DataStatus({
             type="button"
             onClick={onRefresh}
             disabled={refreshing}
-            title="Fetch fresh data through the /psx proxy. If the proxy is unreachable, PSXEdge keeps the last validated dataset."
+            title="Fetch fresh KSE-100 and KMI-30 data through the /psx proxy. If it is unreachable, both datasets stay as they are."
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-2.5 text-xs font-semibold text-ink-700 transition-colors hover:bg-ink-50 disabled:cursor-wait disabled:opacity-60 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
           >
             <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} aria-hidden="true" />
@@ -168,6 +168,10 @@ export function DataStatus({
             forwards to <span className="font-mono text-[10px]">dps.psx.com.pk</span> through the rewrite in{' '}
             <span className="font-mono text-[10px]">vercel.json</span> (the Vite dev server mirrors it locally). The
             response is same-origin, so no CORS header is needed and the snapshot is replaced with live data.
+          </p>
+          <p>
+            One click refreshes <span className="font-medium text-ink-600 dark:text-ink-300">both indices</span> — KSE-100
+            and KMI-30 are fetched and validated together, so switching the toggle afterwards shows fresh data too.
           </p>
           <p>
             <span className="font-semibold text-ink-700 dark:text-ink-200">

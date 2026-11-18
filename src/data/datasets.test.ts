@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectTopConstituents } from '../services/investmentCalculator';
-import { INDEX_META } from './indexMeta';
+import { filterConstituents, rankConstituents } from '../services/investmentCalculator';
 import { SAMPLE_KMI30 } from './sampleKMI30';
 import { SAMPLE_KSE100 } from './sampleKSE100';
 
@@ -23,8 +22,17 @@ describe('bundled KSE-100 snapshot', () => {
     });
   });
 
-  it('yields the documented top 20 in descending order', () => {
-    const top = selectTopConstituents(SAMPLE_KSE100, INDEX_META.KSE100.topN);
+  it('ranks all 100 companies in descending weight order', () => {
+    const ranked = rankConstituents(SAMPLE_KSE100);
+    expect(ranked).toHaveLength(100);
+    expect(ranked[0]).toMatchObject({ rank: 1, ticker: 'FFC', weightage: 9.13 });
+    expect(ranked[99].rank).toBe(100);
+    const weights = ranked.map((c) => c.weightage);
+    expect(weights).toEqual([...weights].sort((a, b) => b - a));
+  });
+
+  it('yields the documented top 20 as a shortlist', () => {
+    const top = filterConstituents(rankConstituents(SAMPLE_KSE100), { topN: 20, sector: 'all', search: '' });
     expect(top).toHaveLength(20);
     expect(top.map((c) => c.ticker)).toEqual([
       'FFC',
@@ -66,13 +74,18 @@ describe('bundled KMI-30 snapshot', () => {
     expect(total).toBeLessThan(101);
   });
 
-  it('yields exactly 15 companies for the strategy, sorted descending', () => {
-    const top = selectTopConstituents(SAMPLE_KMI30, INDEX_META.KMI30.topN);
+  it('ranks all 30 companies for the shariah index', () => {
+    const ranked = rankConstituents(SAMPLE_KMI30);
+    expect(ranked).toHaveLength(30);
+    expect(ranked[0]).toMatchObject({ rank: 1, ticker: 'FFC', weightage: 12.33 });
+    expect(ranked[1].ticker).toBe('ENGROH');
+    const weights = ranked.map((c) => c.weightage);
+    expect(weights).toEqual([...weights].sort((a, b) => b - a));
+  });
+
+  it('keeps a top-15 shortlist available', () => {
+    const top = filterConstituents(rankConstituents(SAMPLE_KMI30), { topN: 15, sector: 'all', search: '' });
     expect(top).toHaveLength(15);
     expect(top[0].ticker).toBe('FFC');
-    expect(top[0].weightage).toBe(12.33);
-    expect(top[1].ticker).toBe('ENGROH');
-    const weights = top.map((c) => c.weightage);
-    expect(weights).toEqual([...weights].sort((a, b) => b - a));
   });
 });

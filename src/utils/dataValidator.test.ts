@@ -100,30 +100,30 @@ describe('column detection', () => {
 });
 
 describe('analyzeTable', () => {
-  it('accepts a valid KSE-100 file and selects the top 20', () => {
+  it('accepts a valid KSE-100 file and keeps every valid company', () => {
     const result = analyzeTable(tableFrom(twentyRows), INDEX_META.KSE100);
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
     expect(result.all).toHaveLength(20);
-    expect(result.selected).toHaveLength(20);
-    expect(result.selected[0].ticker).toBe('T01');
-    expect(result.selected[0].weightage).toBe(10);
-    const weights = result.selected.map((row) => row.weightage);
+    expect(result.all).toHaveLength(20);
+    expect(result.all[0].ticker).toBe('T01');
+    expect(result.all[0].weightage).toBe(10);
+    const weights = result.all.map((row) => row.weightage);
     expect(weights).toEqual([...weights].sort((a, b) => b - a));
   });
 
   it('sorts by weightage regardless of file order', () => {
     const shuffled = [...twentyRows].reverse();
     const result = analyzeTable(tableFrom(shuffled), INDEX_META.KSE100);
-    expect(result.selected[0].ticker).toBe('T01');
-    expect(result.selected[19].ticker).toBe('T20');
+    expect(result.all[0].ticker).toBe('T01');
+    expect(result.all[19].ticker).toBe('T20');
   });
 
-  it('selects only 15 companies for KMI-30 from a larger file', () => {
+  it('accepts a KMI-30 import that exceeds the 15-company minimum', () => {
     const result = analyzeTable(tableFrom(twentyRows), INDEX_META.KMI30);
     expect(result.ok).toBe(true);
     expect(result.all).toHaveLength(20);
-    expect(result.selected).toHaveLength(15);
+    expect(result.errors).toEqual([]);
   });
 
   it('blocks imports with too few companies', () => {
@@ -167,7 +167,7 @@ describe('analyzeTable', () => {
     const rows = twentyRows.map(([ticker, name, sector, weight]) => [ticker, name, sector, String(weight)]);
     const result = analyzeTable(rows, INDEX_META.KSE100);
     expect(result.ok).toBe(true);
-    expect(result.selected).toHaveLength(20);
+    expect(result.all).toHaveLength(20);
   });
 
   it('handles PSX-style exports with extra columns and XD tickers', () => {
@@ -187,8 +187,8 @@ describe('analyzeTable', () => {
     const result = analyzeTable(rows, INDEX_META.KSE100);
     expect(result.ok).toBe(true);
     expect(result.all).toHaveLength(20);
-    expect(result.selected[0].ticker).toBe('T01');
-    expect(result.selected[0].weightage).toBe(10);
+    expect(result.all[0].ticker).toBe('T01');
+    expect(result.all[0].weightage).toBe(10);
   });
 
   it('rejects empty files and files without a weightage column', () => {
@@ -254,6 +254,6 @@ describe('summary rows', () => {
     const result = analyzeTable(rows, INDEX_META.KSE100);
     expect(result.ok).toBe(true);
     expect(result.all.some((row) => row.ticker === 'TOTAL')).toBe(false);
-    expect(result.selected[0].ticker).toBe('T01');
+    expect(result.all[0].ticker).toBe('T01');
   });
 });

@@ -117,7 +117,7 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
     setFeedStatus('Feed saved. Use Refresh to fetch from it.');
   };
 
-  const previewRows = useMemo(() => analysis?.selected.slice(0, 8) ?? [], [analysis]);
+  const previewRows = useMemo(() => analysis?.all.slice(0, 8) ?? [], [analysis]);
 
   if (!open) return null;
 
@@ -184,7 +184,7 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
                       {keyMeta.label}
                     </span>
                     <span className="mt-0.5 block text-[11px] text-ink-500 dark:text-ink-400">
-                      Top {keyMeta.topN} · default ×{keyMeta.defaultMultiplier.toFixed(2)}
+                      Needs at least {keyMeta.minConstituents} companies
                     </span>
                   </button>
                 );
@@ -288,7 +288,7 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
                   <div>
                     {analysis.ok ? (
                       <p className="font-semibold">
-                        {analysis.all.length} valid companies · top {meta.topN} selected · total weight{' '}
+                        {analysis.all.length} valid companies · total weight{' '}
                         {formatPercent(analysis.totalWeightage)}
                       </p>
                     ) : (
@@ -347,7 +347,7 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
                       </tbody>
                     </table>
                     <p className="border-t border-ink-100 px-2.5 py-1.5 text-[10px] text-ink-400 dark:border-ink-800 dark:text-ink-500">
-                      Preview shows the first {previewRows.length} of the top {meta.topN} selected companies.
+                      Preview shows the first {previewRows.length} of {analysis.all.length} valid companies.
                     </p>
                   </div>
                 ) : null}

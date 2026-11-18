@@ -43,6 +43,12 @@ export interface ExportParams {
   meta: IndexMeta;
   dataset: IndexDataset;
   breakdown: InvestmentBreakdown;
+  /** Human-readable selection, e.g. "Top 20 of 100 by weightage · sector: Commercial Banks". */
+  filterSummary: string;
+  /** Total constituents in the dataset, so the export can show "20 of 100". */
+  totalConstituents: number;
+  /** Tickers removed with the company checklist. */
+  excludedCompanies?: readonly string[];
   generatedAt?: Date;
 }
 
@@ -82,7 +88,15 @@ function originLabel(origin: IndexDataset['origin']): string {
 }
 
 /** Build the workbook. Exported separately so tests can inspect it without a DOM. */
-export async function createInvestmentWorkbook({ meta, dataset, breakdown, generatedAt }: ExportParams) {
+export async function createInvestmentWorkbook({
+  meta,
+  dataset,
+  breakdown,
+  filterSummary,
+  totalConstituents,
+  excludedCompanies = [],
+  generatedAt,
+}: ExportParams) {
   const ExcelJS = await loadExcelJS();
   const now = generatedAt ?? new Date();
   const workbook = new ExcelJS.Workbook();
@@ -136,7 +150,11 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
     currentRow += 1;
   };
 
-  const addRow = (label: string, value: string | number, options?: { numFmt?: string; bold?: boolean; color?: string }) => {
+  const addRow = (
+    label: string,
+    value: string | number,
+    options?: { numFmt?: string; bold?: boolean; color?: string; wrap?: boolean },
+  ) => {
     const labelCell = summary.getCell(currentRow, 1);
     labelCell.value = label;
     labelCell.font = { size: 11, color: { argb: 'FF334155' } };
@@ -146,7 +164,7 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
     const valueCell = summary.getCell(currentRow, 2);
     valueCell.value = value;
     valueCell.font = { size: 11, bold: options?.bold ?? false, color: { argb: options?.color ?? 'FF0F172A' } };
-    valueCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    valueCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1, wrapText: options?.wrap ?? false };
     if (options?.numFmt) valueCell.numFmt = options.numFmt;
 
     for (let col = 1; col <= 3; col += 1) {
@@ -154,24 +172,28 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
         bottom: { style: 'hair', color: { argb: COLORS.border } },
       };
     }
-    summary.getRow(currentRow).height = 20;
+    summary.getRow(currentRow).height = options?.wrap ? 30 : 20;
     currentRow += 1;
   };
 
   addSection('Configuration');
   addRow('Application', 'PSXEdge');
   addRow('Selected Index', meta.label);
-  addRow('Strategy', `Top ${meta.topN} companies by index weightage`);
+  addRow('Selection', filterSummary, { wrap: true });
+  addRow('Weighting Method', 'Auto-normalised — adjusted weights total 100%');
+  addRow('Constituents Included', `${rows.length} of ${totalConstituents}`);
+  if (excludedCompanies.length > 0) {
+    addRow('Unchecked Companies', excludedCompanies.join(', '), { wrap: true });
+  }
   addRow('Data Source', dataset.sourceLabel);
   addRow('Data Retrieval Date', formatDateTime(dataset.retrievedAt));
   addRow('Dataset Type', originLabel(dataset.origin));
   if (dataset.importedFrom) addRow('Imported File', dataset.importedFrom);
-  addRow('Companies Included', rows.length);
 
   currentRow += 1;
   addSection('Investment Plan');
   addRow('Investment Amount (PKR)', Math.round(totals.totalInvestment), { numFmt: CURRENCY_FORMAT, bold: true });
-  addRow('Applied Multiplier', totals.multiplier, { numFmt: '0.00"×"' });
+  addRow('Applied Multiplier (auto-derived)', totals.multiplier, { numFmt: '0.0000"×"' });
   addRow('Total Adjusted Weightage', totals.adjustedWeightage, { numFmt: PERCENT_FORMAT, bold: true });
   addRow('Total Allocated Amount (PKR)', totals.allocatedAmount, { numFmt: CURRENCY_FORMAT, bold: true });
 
@@ -187,7 +209,7 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
     });
   } else {
     addRow('Remaining Cash (PKR)', totals.remainingCash, { numFmt: CURRENCY_FORMAT, bold: true });
-    addRow('Allocation Status', 'Within budget', { color: 'FF047857' });
+    addRow('Allocation Status', 'Fully allocated within budget', { color: 'FF047857' });
   }
 
   currentRow += 1;
@@ -195,7 +217,7 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
   const noteCell = summary.getCell(currentRow, 1);
   noteCell.value =
     `Generated ${formatDateTime(now.toISOString())} in the browser by PSXEdge. ` +
-    `Weightages are the original PSX index weights multiplied by ${totals.multiplier.toFixed(2)} and are intentionally not normalised to 100%. ` +
+    `The multiplier (${totals.multiplier.toFixed(4)}×) is derived as 100 ÷ the selected original weightages, so the selected adjusted weightages total 100%. ` +
     'Monetary values are rounded to whole rupees for display and export; verify current market data before trading.';
   noteCell.font = { size: 9, italic: true, color: { argb: COLORS.muted } };
   noteCell.alignment = { vertical: 'top', wrapText: true, indent: 1 };
@@ -271,7 +293,7 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
 
     sheetRow.getCell(2).font = { bold: true, size: 11, color: { argb: 'FF0F172A' } };
     sheetRow.getCell(5).numFmt = PERCENT_FORMAT;
-    sheetRow.getCell(6).numFmt = '0.00';
+    sheetRow.getCell(6).numFmt = '0.0000';
     sheetRow.getCell(7).numFmt = PERCENT_FORMAT;
     sheetRow.getCell(8).numFmt = CURRENCY_FORMAT;
     sheetRow.getCell(8).font = { bold: true, size: 11, color: { argb: 'FF0F172A' } };
@@ -283,7 +305,7 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
   totalsRow.values = [
     'Total',
     '',
-    `${rows.length} companies`,
+    `${rows.length} of ${totalConstituents} companies`,
     '',
     Number(
       rows.reduce((sum, row) => sum + row.originalWeightage, 0).toFixed(4),
@@ -311,9 +333,9 @@ export async function createInvestmentWorkbook({ meta, dataset, breakdown, gener
 
   // Footnote under the totals row (does not affect the filter range).
   const footnote = sheet.getRow(lastDataRow + 3);
-  footnote.getCell(1).value = `PSXEdge • ${meta.label} • multiplier ${totals.multiplier.toFixed(
-    2,
-  )} • generated ${formatDateTime(now.toISOString())} • source: ${dataset.sourceLabel}`;
+  footnote.getCell(1).value = `PSXEdge • ${meta.label} • auto multiplier ${totals.multiplier.toFixed(
+    4,
+  )}× • ${filterSummary} • generated ${formatDateTime(now.toISOString())} • source: ${dataset.sourceLabel}`;
   footnote.getCell(1).font = { size: 9, italic: true, color: { argb: COLORS.muted } };
 
   sheet.pageSetup = {

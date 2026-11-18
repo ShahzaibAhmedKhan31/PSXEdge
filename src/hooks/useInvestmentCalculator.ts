@@ -1,32 +1,30 @@
 import { useMemo } from 'react';
-import type { Constituent, IndexKey } from '../types';
-import type { InvestmentBreakdown } from '../types/investment';
-import { computeBreakdown } from '../services/investmentCalculator';
+import { computeNormalisedBreakdown } from '../services/investmentCalculator';
+import type { IndexKey } from '../types';
+import type { InvestmentBreakdown, RankedConstituent } from '../types/investment';
 
 interface UseInvestmentCalculatorArgs {
-  constituents: readonly Constituent[];
+  /** The currently visible (filtered) companies, already ranked. */
+  ranked: readonly RankedConstituent[];
   totalInvestment: number;
-  multiplier: number;
-  topN: number;
   index: IndexKey;
 }
 
 /**
- * Memoised allocation breakdown. Recomputes only when an input actually
- * changes, so typing in the amount field stays instant.
+ * Memoised allocation for the current selection. The multiplier is derived so
+ * the visible adjusted weightages total 100%, then the budget is apportioned in
+ * whole rupees. Recomputes only when the selection or the budget changes.
  */
 export function useInvestmentCalculator({
-  constituents,
+  ranked,
   totalInvestment,
-  multiplier,
-  topN,
   index,
 }: UseInvestmentCalculatorArgs): InvestmentBreakdown {
   return useMemo(() => {
-    const breakdown = computeBreakdown(constituents, totalInvestment, multiplier, topN);
+    const breakdown = computeNormalisedBreakdown(ranked, totalInvestment);
     return {
       rows: breakdown.rows,
       totals: { ...breakdown.totals, index },
     };
-  }, [constituents, totalInvestment, multiplier, topN, index]);
+  }, [ranked, totalInvestment, index]);
 }

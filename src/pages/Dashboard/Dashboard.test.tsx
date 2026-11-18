@@ -22,8 +22,17 @@ describe('Dashboard render', () => {
     expect(html).toContain('Investment (PKR)');
     expect(html).toContain('FFC');
     expect(html).toContain('Rs 100,000');
-    // Default KSE-100 plan is over-allocated by design (69.74% × 1.5).
-    expect(html).toContain('Over-allocated by');
+    // The full index is listed: a small-cap name near rank 100 must be present.
+    expect(html).toContain('PGLC');
+    // The multiplier is derived and read-only, normalising the visible list to 100%.
+    expect(html).toContain('Automatic');
+    expect(html).toContain('100.00%');
+    // Shortlist + drill-down controls are rendered.
+    expect(html).toContain('Top 20');
+    expect(html).toContain('All sectors');
+    expect(html).toContain('Search company or ticker');
+    // The Excel-style company checklist is mounted (its panel opens on click).
+    expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain('Bundled snapshot');
   });
 });

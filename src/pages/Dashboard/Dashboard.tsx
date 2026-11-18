@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '../../components/Header/Header';
 import { InvestmentInput } from '../../components/InvestmentInput/InvestmentInput';
 import { InvestmentSummary } from '../../components/InvestmentSummary/InvestmentSummary';
-import { OverAllocationAlert } from '../../components/InvestmentSummary/OverAllocationAlert';
 import { InvestmentTable } from '../../components/InvestmentTable/InvestmentTable';
-import { MultiplierInput } from '../../components/MultiplierInput/MultiplierInput';
+import { MultiplierPanel } from '../../components/MultiplierPanel/MultiplierPanel';
 import { DataStatus } from '../../components/DataRefresh/DataStatus';
 import { DataImportDialog } from '../../components/DataImport/DataImportDialog';
 import { Toast, type ToastMessage, type ToastTone } from '../../components/Toast/Toast';
@@ -14,8 +13,16 @@ import { useInvestmentCalculator } from '../../hooks/useInvestmentCalculator';
 import { useTheme } from '../../hooks/useTheme';
 import { STORAGE_KEYS, readJSON, readRaw, writeRaw, writeJSON } from '../../lib/storage';
 import { exportInvestmentWorkbook } from '../../services/excelExportService';
+import {
+  createDefaultFilter,
+  describeFilter,
+  filterConstituents,
+  rankConstituents,
+  sectorOptions,
+} from '../../services/investmentCalculator';
 import { parseAmountInput } from '../../utils/currencyFormatter';
 import type { IndexDataset, IndexKey } from '../../types';
+import type { AllocationFilter, TopNSelection } from '../../types/investment';
 
 const DEFAULT_INVESTMENT = '100000';
 
@@ -24,24 +31,25 @@ function initialInvestmentRaw(): string {
   return stored ?? DEFAULT_INVESTMENT;
 }
 
-function initialMultipliers(): Record<IndexKey, number> {
-  const stored = readJSON<Partial<Record<IndexKey, number>>>(STORAGE_KEYS.multipliers);
-  const fallback = {
-    KSE100: INDEX_META.KSE100.defaultMultiplier,
-    KMI30: INDEX_META.KMI30.defaultMultiplier,
-  };
-  if (!stored) return fallback;
+function isTopNSelection(value: unknown): value is TopNSelection {
+  return value === 'all' || (typeof value === 'number' && Number.isInteger(value) && value > 0);
+}
 
-  return {
-    KSE100:
-      typeof stored.KSE100 === 'number' && Number.isFinite(stored.KSE100) && stored.KSE100 > 0
-        ? stored.KSE100
-        : fallback.KSE100,
-    KMI30:
-      typeof stored.KMI30 === 'number' && Number.isFinite(stored.KMI30) && stored.KMI30 > 0
-        ? stored.KMI30
-        : fallback.KMI30,
+function initialFilters(): Record<IndexKey, AllocationFilter> {
+  const stored = readJSON<Partial<Record<IndexKey, Partial<AllocationFilter>>>>(STORAGE_KEYS.filters);
+  const build = (key: IndexKey): AllocationFilter => {
+    const value = stored?.[key];
+    return {
+      // Search terms are intentionally not persisted — a stale query would hide the list on reopen.
+      topN: isTopNSelection(value?.topN) ? value.topN : 'all',
+      sector: typeof value?.sector === 'string' && value.sector.trim() !== '' ? value.sector : 'all',
+      search: '',
+      excluded: Array.isArray(value?.excluded)
+        ? [...new Set(value.excluded.filter((ticker): ticker is string => typeof ticker === 'string'))]
+        : [],
+    };
   };
+  return { KSE100: build('KSE100'), KMI30: build('KMI30') };
 }
 
 export function Dashboard() {
@@ -61,7 +69,7 @@ export function Dashboard() {
   } = useIndexData();
 
   const [investmentRaw, setInvestmentRaw] = useState(initialInvestmentRaw);
-  const [multipliers, setMultipliers] = useState<Record<IndexKey, number>>(initialMultipliers);
+  const [filters, setFilters] = useState<Record<IndexKey, AllocationFilter>>(initialFilters);
   const [exporting, setExporting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -76,10 +84,6 @@ export function Dashboard() {
     writeRaw(STORAGE_KEYS.investment, investmentRaw);
   }, [investmentRaw]);
 
-  useEffect(() => {
-    writeJSON(STORAGE_KEYS.multipliers, multipliers);
-  }, [multipliers]);
-
   const parsedAmount = parseAmountInput(investmentRaw);
   const totalInvestment = parsedAmount ?? 0;
   const investmentError =
@@ -87,33 +91,42 @@ export function Dashboard() {
       ? 'Enter an investment amount greater than zero.'
       : null;
 
-  const multiplier = multipliers[index];
+  const ranked = useMemo(() => rankConstituents(dataset.constituents), [dataset.constituents]);
+  const sectors = useMemo(() => sectorOptions(ranked), [ranked]);
 
-  const breakdown = useInvestmentCalculator({
-    constituents: dataset.constituents,
-    totalInvestment,
-    multiplier,
-    topN: meta.topN,
-    index,
-  });
+  // A sector saved for a previous dataset may no longer exist after an import.
+  const filter = useMemo<AllocationFilter>(() => {
+    const current = filters[index] ?? createDefaultFilter();
+    let next = current;
+    // A preset saved for a bigger dataset (or a sector from a previous import) may not apply any more.
+    if (next.topN !== 'all' && next.topN >= ranked.length) next = { ...next, topN: 'all' };
+    if (next.sector !== 'all' && !sectors.includes(next.sector)) next = { ...next, sector: 'all' };
+    return next;
+  }, [filters, index, ranked.length, sectors]);
 
-  const example = useMemo(() => {
-    const first = breakdown.rows[0];
-    return first
-      ? {
-          ticker: first.ticker,
-          originalWeightage: first.originalWeightage,
-          adjustedWeightage: first.adjustedWeightage,
-        }
-      : undefined;
-  }, [breakdown.rows]);
+  // Candidates = what the shortlist/sector/search allow; the checklist then excludes tickers.
+  const candidates = useMemo(
+    () => filterConstituents(ranked, { ...filter, excluded: [] }),
+    [ranked, filter],
+  );
+  const visible = useMemo(() => filterConstituents(ranked, filter), [ranked, filter]);
+  const selectedWeightTotal = useMemo(
+    () => visible.reduce((sum, constituent) => sum + constituent.weightage, 0),
+    [visible],
+  );
 
-  const handleMultiplierChange = useCallback(
-    (value: number) => {
-      setMultipliers((current) => (current[index] === value ? current : { ...current, [index]: value }));
+  const breakdown = useInvestmentCalculator({ ranked: visible, totalInvestment, index });
+
+  const handleFilterChange = useCallback(
+    (next: AllocationFilter) => {
+      setFilters((current) => ({ ...current, [index]: next }));
     },
     [index],
   );
+
+  useEffect(() => {
+    writeJSON(STORAGE_KEYS.filters, { ...filters, [index]: filter });
+  }, [filters, index, filter]);
 
   const handleRefresh = useCallback(async () => {
     const result = await refresh();
@@ -149,10 +162,21 @@ export function Dashboard() {
   );
 
   const handleExport = useCallback(async () => {
-    if (exporting || breakdown.rows.length === 0) return;
+    if (exporting) return;
+    if (breakdown.rows.length === 0) {
+      showToast('info', 'Nothing to export', 'No companies match the current filters — reset them and try again.');
+      return;
+    }
     setExporting(true);
     try {
-      const fileName = await exportInvestmentWorkbook({ meta, dataset, breakdown });
+      const fileName = await exportInvestmentWorkbook({
+        meta,
+        dataset,
+        breakdown,
+        filterSummary: describeFilter(filter, ranked.length),
+        totalConstituents: ranked.length,
+        excludedCompanies: filter.excluded ?? [],
+      });
       showToast('success', 'Excel workbook exported', fileName);
     } catch (error) {
       showToast(
@@ -163,7 +187,7 @@ export function Dashboard() {
     } finally {
       setExporting(false);
     }
-  }, [breakdown, dataset, exporting, meta, showToast]);
+  }, [breakdown, dataset, exporting, filter, meta, ranked.length, showToast]);
 
   return (
     <div className="flex min-h-full flex-col bg-ink-50 text-ink-900 dark:bg-ink-950 dark:text-ink-100">
@@ -186,7 +210,8 @@ export function Dashboard() {
               Allocation calculator
             </h2>
             <p className="text-xs text-ink-500 dark:text-ink-400">
-              Weights are never normalised — adjust the multiplier to control exposure.
+              Every constituent is listed. The multiplier is derived automatically so adjusted weights always total
+              100%.
             </p>
           </div>
           <p className="hidden text-[11px] text-ink-400 dark:text-ink-500 sm:block">
@@ -196,20 +221,16 @@ export function Dashboard() {
 
         <div className="grid gap-3 lg:grid-cols-2">
           <InvestmentInput rawValue={investmentRaw} onChange={setInvestmentRaw} error={investmentError} />
-          <MultiplierInput
-            value={multiplier}
-            defaultValue={meta.defaultMultiplier}
-            onChange={handleMultiplierChange}
-            example={example}
+          <MultiplierPanel
+            multiplier={breakdown.totals.multiplier}
+            weightTotal={selectedWeightTotal}
+            selectedCount={visible.length}
+            totalCount={ranked.length}
           />
         </div>
 
         <div className="mt-3">
           <InvestmentSummary totals={breakdown.totals} />
-        </div>
-
-        <div className="mt-3">
-          <OverAllocationAlert totals={breakdown.totals} />
         </div>
 
         <div className="mt-3">
@@ -227,7 +248,16 @@ export function Dashboard() {
         </div>
 
         <div className="mt-3">
-          <InvestmentTable rows={breakdown.rows} totals={breakdown.totals} meta={meta} />
+          <InvestmentTable
+            rows={breakdown.rows}
+            totals={breakdown.totals}
+            meta={meta}
+            filter={filter}
+            onFilterChange={handleFilterChange}
+            sectors={sectors}
+            totalCount={ranked.length}
+            companies={candidates}
+          />
         </div>
 
         <footer className="mt-6 flex flex-col gap-2 border-t border-ink-200 pt-4 text-[11px] leading-relaxed text-ink-400 dark:border-ink-800 dark:text-ink-500 sm:flex-row sm:items-start sm:justify-between">

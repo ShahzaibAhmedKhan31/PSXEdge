@@ -4,7 +4,7 @@ export const STORAGE_KEYS = {
   theme: 'psxedge.theme',
   selectedIndex: 'psxedge.index',
   investment: 'psxedge.investment',
-  multipliers: 'psxedge.multipliers',
+  filters: 'psxedge.filters',
   feedUrl: 'psxedge.feedUrl',
   datasetPrefix: 'psxedge.dataset.',
   lastAttemptPrefix: 'psxedge.lastAttempt.',

@@ -3,8 +3,8 @@
 **Smarter Allocation. Simpler Investing.**
 
 PSXEdge is a lightweight, fully client-side investment allocation calculator for the Pakistan Stock Exchange's
-**KSE-100** and **KMI-30** indices. Pick an index, enter a budget in PKR, tune the weighting multiplier, and see the
-allocation per company instantly. Export the whole plan to a professionally formatted Excel workbook — all calculations
+**KSE-100** and **KMI-30** indices. Pick an index, enter a budget in PKR, and see the allocation for every constituent
+instantly — the weighting multiplier is derived automatically so the visible adjusted weights always total 100%. Export the whole plan to a professionally formatted Excel workbook — all calculations
 run in your browser, with no accounts, database or application server.
 
 - **React 19 + TypeScript + Vite**
@@ -31,7 +31,7 @@ npm run dev      # http://localhost:5173
 | `npm run dev`     | Start the Vite dev server with hot reload        |
 | `npm run build`   | Type-check (`tsc -b`) and build to `dist/`       |
 | `npm run preview` | Serve the production build locally               |
-| `npm test`        | Run the Vitest suite (calculator, validation, …) |
+| `npm test`        | Run the Vitest suite (calculator, filters, validation, export) |
 | `npm run typecheck` | Type-check without emitting                    |
 
 Node 20.19+ or 22.12+ is recommended (Vite 7 requirement).
@@ -40,23 +40,30 @@ Node 20.19+ or 22.12+ is recommended (Vite 7 requirement).
 
 ## How the calculator works
 
-For each of the top-weighted companies:
+The calculator lists **all 100 KSE-100 constituents** and **all 30 KMI-30 constituents**, ranked by index weightage.
 
 ```
+Multiplier         = 100 ÷ Σ(original weightage of the visible companies)   ← derived, read-only
 Adjusted weightage = Original index weightage × Multiplier
 Investment (PKR)   = Total investment × (Adjusted weightage ÷ 100)
 ```
 
-- **KSE-100:** top **20** companies by index weightage, default multiplier **1.5**.
-- **KMI-30:** top **15** companies by index weightage, default multiplier **1.1**.
-- Rows are always sorted by **original** weightage, descending.
-- Adjusted weightages are **never normalised** to 100%. The multiplier and budget are never silently changed.
-- The dashboard shows the budget, total adjusted weightage, total allocated and remaining cash, plus an over-allocation
-  warning when adjusted weights exceed 100%.
-- All maths keeps full precision. Monetary values are rounded to whole rupees **only for display and export**, so the
-  table, summary cards and workbook always agree (totals are the sum of the rounded row amounts).
+- The multiplier is **not editable**. It is computed from whatever is currently visible, so the adjusted weightages
+  always add up to **100%** — switch index, change the shortlist or drill into a sector and it rebalances instantly.
+- **Shortlist filter:** Top 10 / 15 / 20 / 30 / 50 or all companies.
+- **Drill-down filter:** sector dropdown plus a case-insensitive search across ticker, company name and sector. Filters
+  compose (e.g. *Top 20 → Commercial Banks → "bank"*), and the multiplier normalises the remaining companies.
+- **Company checklist:** the **Companies** button opens an Excel-style list with a checkbox per constituent (plus
+  its own find box and All/None shortcuts). Unchecking a company removes it from the table straight away and the
+  multiplier rebalances over the companies that remain — the visible adjusted weights still total 100%. Unchecked
+  tickers persist per index, are listed in the Excel summary, and are cleared by **Reset**.
+- Rows are always sorted by **original** weightage, descending, with rank from the full index.
+- The dashboard shows the budget, total adjusted weightage (100%), total allocated and remaining cash. Over-allocation
+  can no longer occur because the normalised weights never exceed 100%.
+- All maths keeps full precision. Monetary values are apportioned in whole rupees with the largest-remainder method, so
+  the rounded rows sum **exactly** to the budget and the table, summary cards and workbook always agree.
 - Inputs update results instantly via React state and a memoised `useInvestmentCalculator` hook. There is no "Calculate"
-  button.
+  button. Filter choices persist per index; search terms reset on reload.
 
 ---
 
@@ -138,8 +145,9 @@ Required columns (headers are matched flexibly, case-insensitive):
 - Header aliases such as `Symbol`, `Name`, `Industry`, `IDX WTG (%)`, `Index Weight` are recognised.
 - Headerless files are accepted with the column order above.
 - Values like `9.13%` and `1,234` are parsed; missing sectors become `Unclassified`.
-- The importer validates rows, drops duplicates and invalid weights, sorts descending, then selects the **top 20**
-  (KSE-100) or **top 15** (KMI-30). Imports with fewer than the required number of valid companies are rejected.
+- The importer validates rows, drops duplicates and invalid weights, then keeps **every** valid company sorted
+  descending. KSE-100 imports need at least 20 valid rows and KMI-30 imports at least 15; the full index appears in the
+  table and is available to the shortlist filter.
 - Choose which index the file belongs to before confirming. A one-click CSV template is available in the dialog.
 
 ### 3. Refresh button / CORS-enabled feed
@@ -183,9 +191,9 @@ PSXEdge_KSE100_Investment_Breakdown_2026-11-17.xlsx
 PSXEdge_KMI30_Investment_Breakdown_2026-11-17.xlsx
 ```
 
-**Worksheet 1 — Investment Summary:** application name, selected index, strategy, data source, retrieval date, dataset
-type, company count, investment amount, multiplier, total adjusted weightage, total allocated, remaining cash (or the
-over-allocation amount), and a generation note.
+**Worksheet 1 — Investment Summary:** application name, selected index, the active selection (shortlist + drill-down +
+unchecked companies), weighting method, constituents included (e.g. *20 of 100*), data source, retrieval date, dataset type, investment
+amount, the auto-derived multiplier, total adjusted weightage, total allocated, remaining cash and a generation note.
 
 **Worksheet 2 — Company Breakdown:** rank, ticker, company name, sector, original weightage, multiplier, adjusted
 weightage and investment amount (PKR), with bold header, borders, zebra fill, frozen header row, filters, currency and
@@ -206,9 +214,11 @@ src/
 │   ├── Header/Header.tsx                 # brand, index toggle, theme, refresh, export
 │   ├── IndexSelector/IndexSelector.tsx
 │   ├── InvestmentInput/InvestmentInput.tsx
-│   ├── InvestmentSummary/{InvestmentSummary,OverAllocationAlert}.tsx
+│   ├── InvestmentSummary/InvestmentSummary.tsx
 │   ├── InvestmentTable/InvestmentTable.tsx
-│   ├── MultiplierInput/MultiplierInput.tsx
+│   ├── AllocationFilters/AllocationFilters.tsx  # top-N shortlist + sector/search drill-down
+│   ├── AllocationFilters/CompanyFilterPopover.tsx # Excel-style include/uncheck checklist
+│   ├── MultiplierPanel/MultiplierPanel.tsx      # read-only derived multiplier
 │   ├── ThemeToggle/ThemeToggle.tsx
 │   └── Toast/Toast.tsx
 ├── data/                                 # index metadata + labelled PSX snapshots
@@ -243,20 +253,24 @@ State stays local: a few hooks plus React state in the dashboard. No Redux, no r
 npm test
 ```
 
-The Vitest suite (93 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
+The Vitest suite (117 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
 parser and the Excel workbook (including a serialisation round-trip):
 
-1. KSE-100 default multiplier is 1.5, KMI-30 is 1.1
-2. Exactly 20 KSE-100 / 15 KMI-30 companies, descending weightage
-3. Allocation maths (`12% × 1.1 = 13.2%`, Rs 100,000 → Rs 13,200)
-4. No normalisation; correct remaining cash and over-allocation
-5. Display rounding totals equal the sum of the table rows
-6. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
-7. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
-8. Excel worksheet names, summary values, row counts, number formats, filters, totals row
-9. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
-   (not thrown), feeds are preferred, invalid feed data falls back, and both indices refresh together with partial
-   success preserved
+1. Ranking: full 100 / 30 constituent lists, descending weightage, ticker tiebreak, non-mutating
+2. Shortlist + drill-down filtering: top-N applied first, sector and case-insensitive search composed on top
+3. Company checklist: unchecking tickers removes them, renormalises the multiplier and survives composition
+4. Auto multiplier: `100 ÷ Σ visible weightages`, 0 for an empty selection, rebalanced after filtering
+5. Adjusted weights total exactly 100% for the whole index and for every filtered subset
+6. Largest-remainder apportionment: rounded rows always sum to the budget, including awkward amounts
+7. Empty / negative / NaN inputs produce zeros rather than NaN
+8. Display rounding totals equal the sum of the table rows
+9. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
+10. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
+11. Excel worksheet names, summary values (selection, “20 of 100”, multiplier, 100% total), row counts, formats,
+    filters, totals row and a serialisation round-trip
+12. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
+    (not thrown), feeds are preferred, invalid feed data falls back, and both indices refresh together with partial
+    success preserved
 
 Manual checks that complement the suite: instant updates while typing, index switching, dark-mode persistence, import
 of a real PSX file, cached-dataset recovery after reload, and responsive layout.

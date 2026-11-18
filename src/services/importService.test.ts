@@ -55,9 +55,8 @@ describe('analyseFile + datasetFromImport', () => {
     const analysis = analyzeFile(parsed, INDEX_META.KSE100);
     expect(analysis.ok).toBe(true);
     expect(analysis.all).toHaveLength(22);
-    expect(analysis.selected).toHaveLength(20);
-    expect(analysis.selected[0].ticker).toBe('C01');
-    expect(analysis.selected[19].ticker).toBe('C20');
+    expect(analysis.all[0].ticker).toBe('C01');
+    expect(analysis.all[19].ticker).toBe('C20');
 
     const dataset = datasetFromImport({ index: 'KSE100', analysis, fileName: parsed.fileName });
     expect(dataset.origin).toBe('imported');
@@ -68,10 +67,10 @@ describe('analyseFile + datasetFromImport', () => {
     expect(Number.isNaN(Date.parse(dataset.retrievedAt))).toBe(false);
   });
 
-  it('selects 15 companies for KMI-30 from the same file', async () => {
+  it('keeps every company when importing the same file for KMI-30', async () => {
     const parsed = await readSpreadsheetFile(await buildXlsxFile());
     const analysis = analyzeFile(parsed, INDEX_META.KMI30);
     expect(analysis.ok).toBe(true);
-    expect(analysis.selected).toHaveLength(15);
+    expect(analysis.all).toHaveLength(22);
   });
 });

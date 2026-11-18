@@ -120,17 +120,17 @@ export function Dashboard() {
     if (result.ok) {
       showToast('success', 'Data refreshed', result.message);
     } else if (result.corsBlocked) {
-      // Expected: PSX sends no CORS headers. Never present this as a failure of the app.
+      // The proxy was unavailable and the direct fallback hit PSX's missing CORS header.
       showToast(
         'info',
-        'PSX blocks browser reads (CORS)',
-        'That console warning is expected: PSX sends no Access-Control-Allow-Origin header, so no website can read it directly. Your last validated dataset is still in use — import a CSV/XLSX or connect a feed to update it.',
+        'Proxy unavailable — PSX blocked the direct request',
+        'Refresh normally goes through the /psx proxy on Vercel and updates both KSE-100 and KMI-30. From this host the proxy could not be reached, so the browser fell back to direct requests and PSX blocked them (no CORS header). Both datasets are unchanged — import a CSV/XLSX or connect a feed to update them.',
       );
     } else {
       showToast(
         'error',
         'Live refresh failed',
-        'The data source could not be reached. Your last validated dataset is still in use — try again, or import a CSV/XLSX file.',
+        'Neither the /psx proxy nor the feed could be reached. Both datasets are unchanged — try again, or import a CSV/XLSX file.',
       );
     }
   }, [refresh, showToast]);

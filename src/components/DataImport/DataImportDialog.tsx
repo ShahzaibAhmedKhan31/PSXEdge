@@ -370,7 +370,8 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
             <div className="mt-2 space-y-2">
               <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
                 PSX's own portal cannot be read by a browser (no CORS headers). If you host a CORS-enabled JSON endpoint
-                — for example a static file on GitHub Pages — paste it here. Expected shape:{' '}
+                — for example a static file on GitHub Pages — paste it here. It is applied to the selected index when
+                you refresh; the other index still uses the /psx proxy. Expected shape:{' '}
                 <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px] text-ink-700 dark:bg-ink-800 dark:text-ink-200">
                   {'{ "constituents": [{ "ticker": "FFC", "companyName": "…", "sector": "…", "weightage": 9.13 }] }'}
                 </code>

@@ -127,7 +127,7 @@ export function DataStatus({
             type="button"
             onClick={onRefresh}
             disabled={refreshing}
-            title="Try a live fetch. PSX blocks browser requests (CORS), so PSXEdge keeps the last validated dataset."
+            title="Fetch fresh KSE-100 and KMI-30 data through the /psx proxy. If it is unreachable, both datasets stay as they are."
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-2.5 text-xs font-semibold text-ink-700 transition-colors hover:bg-ink-50 disabled:cursor-wait disabled:opacity-60 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
           >
             <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} aria-hidden="true" />
@@ -153,7 +153,7 @@ export function DataStatus({
       >
         <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-ink-500 outline-none hover:text-ink-700 dark:text-ink-400 dark:hover:text-ink-200">
           <Info className="h-3.5 w-3.5" aria-hidden="true" />
-          Live refresh, CORS and data sources
+          Live refresh, the /psx proxy and CORS
           {failedAttempts.length > 0 ? (
             <span className="rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
               PSX blocked the request
@@ -163,13 +163,24 @@ export function DataStatus({
 
         <div className="mt-2 max-w-3xl space-y-2 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
           <p>
+            Refresh asks the same-origin proxy at{' '}
+            <code className="rounded bg-ink-100 px-1 font-mono text-[10px] dark:bg-ink-800">/psx/…</code>, which Vercel
+            forwards to <span className="font-mono text-[10px]">dps.psx.com.pk</span> through the rewrite in{' '}
+            <span className="font-mono text-[10px]">vercel.json</span> (the Vite dev server mirrors it locally). The
+            response is same-origin, so no CORS header is needed and the snapshot is replaced with live data.
+          </p>
+          <p>
+            One click refreshes <span className="font-medium text-ink-600 dark:text-ink-300">both indices</span> — KSE-100
+            and KMI-30 are fetched and validated together, so switching the toggle afterwards shows fresh data too.
+          </p>
+          <p>
             <span className="font-semibold text-ink-700 dark:text-ink-200">
-              The CORS warning in your browser console is expected — it is not an error in PSXEdge.
+              If you still see a CORS warning, the proxy was not reachable from this host.
             </span>{' '}
-            PSX&apos;s Data Portal (<span className="font-mono text-[10px]">dps.psx.com.pk</span>) answers with HTML but does
-            not send an <code className="rounded bg-ink-100 px-1 font-mono text-[10px] dark:bg-ink-800">Access-Control-Allow-Origin</code>{' '}
-            header. Browsers block every cross-origin read by design, and PSXEdge deliberately has no backend or proxy to
-            work around it. Your last validated dataset keeps being used and nothing on screen changes.
+            A plain static host without the rewrite, a blocked network or a PSX outage all produce it. PSX&apos;s Data
+            Portal sends no <code className="rounded bg-ink-100 px-1 font-mono text-[10px] dark:bg-ink-800">Access-Control-Allow-Origin</code>{' '}
+            header, so the browser refuses the direct fallback request. The last validated dataset stays in place and
+            nothing on screen changes.
           </p>
           <p className="font-medium text-ink-600 dark:text-ink-300">To update the data, use one of these:</p>
           <ol className="list-decimal space-y-1 pl-4">
@@ -179,8 +190,8 @@ export function DataStatus({
             </li>
             <li>
               <span className="font-medium text-ink-600 dark:text-ink-300">Connect a CORS-enabled feed</span> — a JSON URL
-              you host somewhere that allows cross-origin reads (Advanced section of the import dialog). Refresh will use
-              it before falling back to PSX.
+              you host somewhere that allows cross-origin reads (Advanced section of the import dialog). Refresh uses
+              it before falling back to the /psx proxy.
             </li>
             <li>
               <span className="font-medium text-ink-600 dark:text-ink-300">Keep the bundled snapshot</span> — labelled

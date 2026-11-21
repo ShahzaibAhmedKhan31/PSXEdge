@@ -17,6 +17,19 @@ export function allocationAmount(totalInvestment: number, adjustedWeightPercent:
   return (totalInvestment * adjustedWeightPercent) / 100;
 }
 
+/** A usable price is finite and positive; anything else means "no price". */
+export function normalisePrice(value: unknown): number | null {
+  const price = typeof value === 'string' ? Number(value.replace(/,/g, '')) : Number(value);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+/** Whole shares affordable with an amount: ⌊amount ÷ price⌋, 0 without a price. */
+export function wholeShares(amount: number, price: number | null): number {
+  if (price === null || !Number.isFinite(price) || price <= 0) return 0;
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.floor(amount / price);
+}
+
 /** Round to whole rupees. */
 export function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -122,11 +135,14 @@ export function apportionRupees(total: number, weights: readonly number[]): numb
  *
  * The multiplier is derived from the visible rows so their adjusted weightages
  * total 100%; the budget is then apportioned in whole rupees that sum to the
- * budget. With an empty selection everything is zero.
+ * budget. When prices are supplied, each row is converted to whole shares with
+ * a floor, so Σ(shares × price) can never exceed the budget — the remainder is
+ * reported as uninvested cash. With an empty selection everything is zero.
  */
 export function computeNormalisedBreakdown(
   ranked: readonly RankedConstituent[],
   totalInvestment: number,
+  prices: Readonly<Record<string, number>> = {},
 ): InvestmentBreakdown {
   const safeInvestment = Number.isFinite(totalInvestment) && totalInvestment > 0 ? totalInvestment : 0;
   const multiplier = normalisingMultiplier(ranked);
@@ -136,6 +152,9 @@ export function computeNormalisedBreakdown(
   const rows: AllocationRow[] = ranked.map((company, position) => {
     const adjusted = adjustedWeights[position];
     const allocation = allocationAmount(safeInvestment, adjusted);
+    const allocationRounded = roundedAllocations[position] ?? 0;
+    const price = normalisePrice(prices[company.ticker]);
+    const shares = wholeShares(allocationRounded, price);
     return {
       rank: company.rank,
       ticker: company.ticker,
@@ -145,12 +164,18 @@ export function computeNormalisedBreakdown(
       multiplier,
       adjustedWeightage: adjusted,
       allocation,
-      allocationRounded: roundedAllocations[position] ?? 0,
+      allocationRounded,
+      price,
+      shares,
+      cost: price === null ? 0 : Math.round(shares * price * 100) / 100,
     };
   });
 
   const allocatedPrecise = rows.reduce((sum, row) => sum + row.allocation, 0);
   const allocatedAmount = rows.reduce((sum, row) => sum + row.allocationRounded, 0);
+
+  const totalShares = rows.reduce((sum, row) => sum + row.shares, 0);
+  const investedAmount = Math.round(rows.reduce((sum, row) => sum + row.cost, 0) * 100) / 100;
 
   const totals: InvestmentTotals = {
     totalInvestment: safeInvestment,
@@ -161,6 +186,10 @@ export function computeNormalisedBreakdown(
     allocatedAmount,
     allocatedPrecise,
     remainingCash: safeInvestment - allocatedAmount,
+    totalShares,
+    investedAmount,
+    uninvestedCash: Math.max(0, Math.round((safeInvestment - investedAmount) * 100) / 100),
+    missingPriceCount: rows.filter((row) => row.price === null).length,
     isOverAllocated: false,
     overAllocatedBy: 0,
     companyCount: rows.length,

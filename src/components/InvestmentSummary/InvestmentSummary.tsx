@@ -1,4 +1,4 @@
-import { Coins, PieChart, Scale, Wallet } from 'lucide-react';
+import { Banknote, Coins, Hash, PieChart, Scale, Wallet } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { formatPKR } from '../../utils/currencyFormatter';
 import { formatMultiplierAuto, formatPercent } from '../../utils/percentageFormatter';
@@ -9,9 +9,8 @@ interface InvestmentSummaryProps {
 }
 
 export function InvestmentSummary({ totals }: InvestmentSummaryProps) {
-  const remainingLabel = totals.isOverAllocated ? 'Over-allocated' : 'Remaining cash';
-  // Shown as a positive magnitude: the card is already labelled "Over-allocated".
-  const remainingValue = totals.isOverAllocated ? totals.overAllocatedBy : totals.remainingCash;
+  const priced = totals.companyCount - totals.missingPriceCount;
+  const fullyInvested = totals.companyCount > 0 && totals.uninvestedCash < 1;
 
   const cards = [
     {
@@ -34,36 +33,50 @@ export function InvestmentSummary({ totals }: InvestmentSummaryProps) {
     {
       label: 'Total allocated',
       value: formatPKR(totals.allocatedAmount),
-      hint: `${totals.companyCount} ${totals.companyCount === 1 ? 'company' : 'companies'} · fully invested`,
+      hint:
+        totals.companyCount > 0
+          ? `${totals.companyCount} ${totals.companyCount === 1 ? 'company' : 'companies'} · target amounts`
+          : 'Nothing allocated',
       icon: PieChart,
       tone: 'default' as const,
     },
     {
-      label: remainingLabel,
-      value: formatPKR(remainingValue),
-      hint: totals.isOverAllocated
-        ? `Adjusted weights exceed 100% by ${formatPercent(totals.adjustedWeightage - 100)}`
-        : totals.remainingCash < 1
-          ? 'Fully allocated — only rounding residue'
-          : 'Unallocated part of your budget',
+      label: 'Shares to buy',
+      value: totals.totalShares.toLocaleString('en-PK'),
+      hint:
+        totals.missingPriceCount > 0
+          ? `${totals.missingPriceCount} ${totals.missingPriceCount === 1 ? 'company has' : 'companies have'} no price`
+          : `${priced} ${priced === 1 ? 'company' : 'companies'} · whole shares only`,
+      icon: Hash,
+      tone: 'default' as const,
+    },
+    {
+      label: 'Invested amount',
+      value: formatPKR(totals.investedAmount),
+      hint:
+        totals.companyCount > 0
+          ? 'Σ shares × current price'
+          : 'Add prices to size the plan',
+      icon: Banknote,
+      tone: 'default' as const,
+    },
+    {
+      label: 'Uninvested cash',
+      value: formatPKR(totals.uninvestedCash),
+      hint: fullyInvested ? 'Everything invested' : 'Left over — no whole share fits',
       icon: Coins,
-      tone: totals.isOverAllocated ? ('danger' as const) : ('positive' as const),
+      tone: fullyInvested ? ('positive' as const) : ('default' as const),
     },
   ];
 
   return (
-    <section aria-label="Investment summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <section aria-label="Investment summary" className="grid grid-cols-2 gap-3 lg:grid-cols-3">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
           <div
             key={card.label}
-            className={cn(
-              'rounded-xl border bg-white p-4 shadow-card dark:bg-ink-900',
-              card.tone === 'danger'
-                ? 'border-red-200 dark:border-red-500/30'
-                : 'border-ink-200 dark:border-ink-800',
-            )}
+            className="rounded-xl border border-ink-200 bg-white p-4 shadow-card dark:border-ink-800 dark:bg-ink-900"
           >
             <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-400 dark:text-ink-500">
               <Icon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -72,11 +85,9 @@ export function InvestmentSummary({ totals }: InvestmentSummaryProps) {
             <div
               className={cn(
                 'mt-2 break-words text-lg font-semibold leading-tight tracking-tight tabular-nums sm:text-2xl',
-                card.tone === 'danger'
-                  ? 'text-red-600 dark:text-red-400'
-                  : card.tone === 'positive'
-                    ? 'text-brand-700 dark:text-brand-400'
-                    : 'text-ink-900 dark:text-white',
+                card.tone === 'positive'
+                  ? 'text-brand-700 dark:text-brand-400'
+                  : 'text-ink-900 dark:text-white',
               )}
             >
               {card.value}

@@ -3,9 +3,11 @@ import { Table2 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { formatPKR } from '../../utils/currencyFormatter';
 import { formatPercent } from '../../utils/percentageFormatter';
+import { formatTimestamp } from '../../services/indexDataService';
 import type { IndexMeta } from '../../types';
 import type { AllocationFilter, AllocationRow, InvestmentTotals, RankedConstituent } from '../../types/investment';
 import { AllocationFilters } from '../AllocationFilters/AllocationFilters';
+import { PriceInput } from './PriceInput';
 
 /** Each header cell is sticky individually — sticky on `<tr>` is unreliable. */
 const TH_CLASSES =
@@ -21,6 +23,13 @@ interface InvestmentTableProps {
   totalCount: number;
   /** Companies matching the shortlist/sector/search filters, before the company checklist. */
   companies: readonly RankedConstituent[];
+  /** Where the prices came from, e.g. "PSX Data Portal — index constituent prices". */
+  priceLabel: string;
+  /** Snapshot capture or last edit timestamp (ISO). */
+  priceUpdatedAt: string;
+  priceEdited: boolean;
+  onPriceChange: (ticker: string, price: number | null) => void;
+  onOpenPrices: () => void;
 }
 
 export function InvestmentTable({
@@ -32,6 +41,11 @@ export function InvestmentTable({
   sectors,
   totalCount,
   companies,
+  priceLabel,
+  priceUpdatedAt,
+  priceEdited,
+  onPriceChange,
+  onOpenPrices,
 }: InvestmentTableProps) {
   const { maxAllocation, totalOriginalWeightage } = useMemo(() => {
     return {
@@ -54,7 +68,7 @@ export function InvestmentTable({
           </span>
         </div>
         <p className="text-[11px] text-ink-500 dark:text-ink-400">
-          Sorted by index weightage (desc) · adjusted weights total 100%
+          Sorted by index weightage (desc) · adjusted weights total 100% · shares are floored to whole numbers
         </p>
       </div>
 
@@ -68,10 +82,10 @@ export function InvestmentTable({
       />
 
       <div className="max-h-[560px] overflow-auto">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+        <table className="w-full min-w-[980px] border-collapse text-sm">
           <caption className="sr-only">
-            {rows.length} of {totalCount} {meta.label} companies with original and adjusted weightages and investment
-            amounts in Pakistani Rupees.
+            {rows.length} of {totalCount} {meta.label} companies with original and adjusted weightages, the target
+            investment amount, the current share price and the whole number of shares to buy in Pakistani Rupees.
           </caption>
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-ink-500 dark:text-ink-400">
@@ -96,12 +110,18 @@ export function InvestmentTable({
               <th scope="col" className={cn(TH_CLASSES, 'text-right')}>
                 Investment (PKR)
               </th>
+              <th scope="col" className={cn(TH_CLASSES, 'text-right')}>
+                Price / share (Rs)
+              </th>
+              <th scope="col" className={cn(TH_CLASSES, 'text-right')}>
+                Shares to buy
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr className="border-t border-ink-100 dark:border-ink-800/70">
-                <td colSpan={7} className="px-4 py-10 text-center">
+                <td colSpan={9} className="px-4 py-10 text-center">
                   <p className="text-sm font-medium text-ink-700 dark:text-ink-200">No companies match these filters.</p>
                   <p className="mt-1 text-xs text-ink-500 dark:text-ink-400">
                     Clear the search or pick a different sector to see results.
@@ -143,7 +163,7 @@ export function InvestmentTable({
                     <td className="px-3 py-2.5 text-right text-xs font-medium tabular-nums text-ink-800 dark:text-ink-100">
                       {formatPercent(row.adjustedWeightage)}
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-3 py-2.5">
                       <div className="flex items-center justify-end gap-3">
                         <span
                           aria-hidden="true"
@@ -158,6 +178,29 @@ export function InvestmentTable({
                           {formatPKR(row.allocationRounded)}
                         </span>
                       </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <PriceInput ticker={row.ticker} value={row.price} onCommit={(value) => onPriceChange(row.ticker, value)} />
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span
+                        title={
+                          row.price === null
+                            ? 'Add a price to size this holding'
+                            : `${formatPKR(row.allocationRounded)} ÷ Rs ${row.price.toFixed(2)} = ${(
+                                row.allocationRounded / row.price
+                              ).toFixed(2)} shares → ${row.shares} whole shares`
+                        }
+                        className={cn(
+                          'block text-sm font-semibold tabular-nums',
+                          row.price === null ? 'text-ink-400 dark:text-ink-500' : 'text-ink-900 dark:text-white',
+                        )}
+                      >
+                        {row.price === null ? '—' : row.shares.toLocaleString('en-PK')}
+                      </span>
+                      <span className="block text-[10px] tabular-nums text-ink-400 dark:text-ink-500">
+                        {row.price === null ? 'no price' : formatPKR(row.cost)}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -178,14 +221,36 @@ export function InvestmentTable({
               <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-brand-800 dark:text-brand-300">
                 {formatPKR(totals.allocatedAmount)}
               </td>
+              <td className="px-3 py-3 text-right text-[11px] tabular-nums text-brand-700/80 dark:text-brand-300/80">
+                {totals.missingPriceCount > 0 ? `${totals.missingPriceCount} unpriced` : ''}
+              </td>
+              <td className="px-3 py-3 text-right">
+                <span className="block text-sm font-bold tabular-nums text-brand-800 dark:text-brand-300">
+                  {totals.totalShares.toLocaleString('en-PK')}
+                </span>
+                <span className="block text-[10px] tabular-nums text-brand-700/80 dark:text-brand-300/80">
+                  {formatPKR(totals.investedAmount)} invested
+                </span>
+              </td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      <p className="border-t border-ink-100 px-4 py-2 text-[11px] text-ink-400 dark:border-ink-800 dark:text-ink-500 sm:hidden">
-        Scroll the table horizontally to see every column.
-      </p>
+      <div className="flex flex-col gap-1 border-t border-ink-100 px-4 py-2 text-[11px] text-ink-400 dark:border-ink-800 dark:text-ink-500 sm:flex-row sm:items-center sm:justify-between">
+        <p>
+          Prices: {priceLabel} · {formatTimestamp(priceUpdatedAt)}
+          {priceEdited ? ' · edited in this browser' : ''}
+          <span className="sm:hidden"> · scroll the table horizontally</span>
+        </p>
+        <button
+          type="button"
+          onClick={onOpenPrices}
+          className="self-start font-medium text-brand-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 dark:text-brand-400 sm:self-auto"
+        >
+          Update prices
+        </button>
+      </div>
     </section>
   );
 }

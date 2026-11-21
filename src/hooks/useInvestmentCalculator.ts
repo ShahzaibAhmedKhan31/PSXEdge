@@ -7,6 +7,8 @@ interface UseInvestmentCalculatorArgs {
   /** The currently visible (filtered) companies, already ranked. */
   ranked: readonly RankedConstituent[];
   totalInvestment: number;
+  /** Ticker → price in PKR. Missing entries mean "no price yet". */
+  prices?: Readonly<Record<string, number>>;
   index: IndexKey;
 }
 
@@ -18,13 +20,14 @@ interface UseInvestmentCalculatorArgs {
 export function useInvestmentCalculator({
   ranked,
   totalInvestment,
+  prices,
   index,
 }: UseInvestmentCalculatorArgs): InvestmentBreakdown {
   return useMemo(() => {
-    const breakdown = computeNormalisedBreakdown(ranked, totalInvestment);
+    const breakdown = computeNormalisedBreakdown(ranked, totalInvestment, prices);
     return {
       rows: breakdown.rows,
       totals: { ...breakdown.totals, index },
     };
-  }, [ranked, totalInvestment, index]);
+  }, [ranked, totalInvestment, prices, index]);
 }

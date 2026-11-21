@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INDEX_META } from '../data/indexMeta';
+import { SAMPLE_PRICES } from '../data/priceSnapshot';
 import { SAMPLE_KMI30 } from '../data/sampleKMI30';
 import { SAMPLE_KSE100 } from '../data/sampleKSE100';
 import type { Constituent } from '../types';
@@ -352,6 +353,83 @@ describe('computeNormalisedBreakdown', () => {
     const { rows, totals } = computeNormalisedBreakdown(rankConstituents(makeCompanies([3, 5, 7, 11])), 99_999.99);
     expect(totals.allocatedAmount).toBe(100_000);
     expect(sum(rows.map((row) => row.allocationRounded))).toBe(100_000);
+  });
+});
+
+describe('whole shares and prices', () => {
+  const ffc = rankConstituents([
+    { ticker: 'FFC', companyName: 'Fauji Fertilizer Company Limited', sector: 'Fertilizer', weightage: 100 },
+  ]);
+
+  it("floors the user's example: Rs 4,831 ÷ Rs 571.30 → 8 shares", () => {
+    const { rows, totals } = computeNormalisedBreakdown(ffc, 4_831, { FFC: 571.3 });
+    expect(rows[0].allocationRounded).toBe(4_831);
+    expect(rows[0].price).toBe(571.3);
+    expect(rows[0].shares).toBe(8);
+    expect(rows[0].cost).toBeCloseTo(4_570.4, 2);
+    expect(totals.totalShares).toBe(8);
+    expect(totals.investedAmount).toBeCloseTo(4_570.4, 2);
+    expect(totals.uninvestedCash).toBeCloseTo(260.6, 2);
+  });
+
+  it('floors rather than rounds up, so a row never costs more than its allocation', () => {
+    const { rows } = computeNormalisedBreakdown(ffc, 1_000, { FFC: 600 });
+    expect(rows[0].shares).toBe(1);
+    expect(rows[0].cost).toBe(600);
+  });
+
+  it('never spends more than the budget across a whole index', () => {
+    const ranked = rankConstituents(SAMPLE_KSE100);
+    const { rows, totals } = computeNormalisedBreakdown(ranked, 100_000, SAMPLE_PRICES.KSE100);
+    const spend = rows.reduce((sum, row) => sum + (row.price ?? 0) * row.shares, 0);
+
+    expect(totals.investedAmount).toBeCloseTo(spend, 2);
+    expect(totals.investedAmount).toBeLessThanOrEqual(100_000);
+    expect(totals.uninvestedCash).toBeCloseTo(100_000 - totals.investedAmount, 2);
+    expect(totals.totalShares).toBe(rows.reduce((sum, row) => sum + row.shares, 0));
+    expect(totals.investedAmount).toBeGreaterThan(0);
+  });
+
+  it('recomputes shares when filtering changes the allocations', () => {
+    const ranked = rankConstituents(SAMPLE_KMI30);
+    const prices = SAMPLE_PRICES.KMI30;
+    const top5 = rankConstituents(filterConstituents(ranked, { topN: 5, sector: 'all', search: '' }));
+    const all = computeNormalisedBreakdown(ranked, 500_000, prices);
+    const subset = computeNormalisedBreakdown(top5, 500_000, prices);
+
+    // The subset gets bigger per-row allocations (multiplier rebalances), so FFC needs more shares.
+    expect(subset.rows[0].allocationRounded).toBeGreaterThan(all.rows[0].allocationRounded);
+    expect(subset.rows[0].shares).toBeGreaterThan(all.rows[0].shares);
+    expect(subset.totals.investedAmount).toBeLessThanOrEqual(500_000);
+  });
+
+  it('reports missing, zero and invalid prices without inventing shares', () => {
+    const ranked = rankConstituents([
+      { ticker: 'AAA', companyName: 'A', sector: 'S', weightage: 50 },
+      { ticker: 'BBB', companyName: 'B', sector: 'S', weightage: 30 },
+      { ticker: 'CCC', companyName: 'C', sector: 'S', weightage: 20 },
+    ]);
+    const { rows, totals } = computeNormalisedBreakdown(ranked, 10_000, {
+      AAA: 100,
+      BBB: 0,
+      CCC: Number.NaN,
+    });
+
+    expect(rows.map((row) => row.price)).toEqual([100, null, null]);
+    expect(rows.map((row) => row.shares)).toEqual([50, 0, 0]);
+    expect(totals.missingPriceCount).toBe(2);
+    expect(totals.totalShares).toBe(50);
+    expect(totals.investedAmount).toBe(5_000);
+    expect(totals.uninvestedCash).toBe(5_000);
+  });
+
+  it('behaves exactly like before when no prices are supplied', () => {
+    const { rows, totals } = computeNormalisedBreakdown(rankConstituents(makeCompanies([60, 40])), 100_000);
+    expect(rows.every((row) => row.price === null && row.shares === 0 && row.cost === 0)).toBe(true);
+    expect(totals.investedAmount).toBe(0);
+    expect(totals.uninvestedCash).toBe(100_000);
+    expect(totals.missingPriceCount).toBe(2);
+    expect(totals.remainingCash).toBe(0);
   });
 });
 

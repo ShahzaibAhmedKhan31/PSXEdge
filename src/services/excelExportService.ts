@@ -49,6 +49,8 @@ export interface ExportParams {
   totalConstituents: number;
   /** Tickers removed with the company checklist. */
   excludedCompanies?: readonly string[];
+  /** Where the share prices came from and when. */
+  priceInfo?: { label: string; updatedAt: string; edited: boolean };
   generatedAt?: Date;
 }
 
@@ -95,6 +97,7 @@ export async function createInvestmentWorkbook({
   filterSummary,
   totalConstituents,
   excludedCompanies = [],
+  priceInfo,
   generatedAt,
 }: ExportParams) {
   const ExcelJS = await loadExcelJS();
@@ -196,6 +199,16 @@ export async function createInvestmentWorkbook({
   addRow('Applied Multiplier (auto-derived)', totals.multiplier, { numFmt: '0.0000"×"' });
   addRow('Total Adjusted Weightage', totals.adjustedWeightage, { numFmt: PERCENT_FORMAT, bold: true });
   addRow('Total Allocated Amount (PKR)', totals.allocatedAmount, { numFmt: CURRENCY_FORMAT, bold: true });
+  addRow('Total Shares to Buy', totals.totalShares, { numFmt: '#,##0', bold: true });
+  addRow('Invested Amount (PKR)', totals.investedAmount, { numFmt: CURRENCY_FORMAT, bold: true });
+  if (totals.missingPriceCount > 0) {
+    addRow('Companies Without a Price', totals.missingPriceCount);
+  }
+  addRow('Share Prices', priceInfo?.label ?? 'Bundled price snapshot');
+  if (priceInfo) {
+    addRow('Price Snapshot / Edit Date', formatDateTime(priceInfo.updatedAt));
+    if (priceInfo.edited) addRow('Price Edits', 'Edited in this browser');
+  }
 
   if (totals.isOverAllocated) {
     addRow('Remaining Cash (PKR)', -Math.round(totals.overAllocatedBy), {
@@ -208,8 +221,14 @@ export async function createInvestmentWorkbook({
       bold: true,
     });
   } else {
-    addRow('Remaining Cash (PKR)', totals.remainingCash, { numFmt: CURRENCY_FORMAT, bold: true });
-    addRow('Allocation Status', 'Fully allocated within budget', { color: 'FF047857' });
+    addRow('Remaining Cash (PKR)', totals.uninvestedCash, { numFmt: CURRENCY_FORMAT, bold: true });
+    addRow(
+      'Allocation Status',
+      totals.uninvestedCash < 1
+        ? 'Fully allocated and fully invested'
+        : `Fully allocated · ${formatPKRAmount(totals.uninvestedCash)} left uninvested (whole shares only)`,
+      { color: 'FF047857', wrap: true },
+    );
   }
 
   currentRow += 1;
@@ -218,6 +237,8 @@ export async function createInvestmentWorkbook({
   noteCell.value =
     `Generated ${formatDateTime(now.toISOString())} in the browser by PSXEdge. ` +
     `The multiplier (${totals.multiplier.toFixed(4)}×) is derived as 100 ÷ the selected original weightages, so the selected adjusted weightages total 100%. ` +
+    `Shares are floored per company (target ÷ price) so the total cost never exceeds the budget; ` +
+    `prices are a point-in-time snapshot, not live quotes. ` +
     'Monetary values are rounded to whole rupees for display and export; verify current market data before trading.';
   noteCell.font = { size: 9, italic: true, color: { argb: COLORS.muted } };
   noteCell.alignment = { vertical: 'top', wrapText: true, indent: 1 };
@@ -240,6 +261,8 @@ export async function createInvestmentWorkbook({
     { header: 'Multiplier', key: 'multiplier', width: 12 },
     { header: 'Adjusted Weightage (%)', key: 'adjusted', width: 22 },
     { header: 'Investment Amount (PKR)', key: 'investment', width: 24 },
+    { header: 'Current Price (PKR)', key: 'price', width: 20 },
+    { header: 'Shares to Buy', key: 'shares', width: 15 },
   ];
 
   sheet.columns = headers.map((column) => ({ header: column.header, key: column.key, width: column.width }));
@@ -268,6 +291,8 @@ export async function createInvestmentWorkbook({
       multiplier: row.multiplier,
       adjusted: Number(row.adjustedWeightage.toFixed(4)),
       investment: row.allocationRounded,
+      price: row.price ?? null,
+      shares: row.price === null ? null : row.shares,
     });
     sheetRow.height = 18;
 
@@ -284,7 +309,7 @@ export async function createInvestmentWorkbook({
       }
       if (colNumber === 1 || colNumber === 6) {
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      } else if (colNumber === 5 || colNumber === 7 || colNumber === 8) {
+      } else if (colNumber === 5 || colNumber === 7 || colNumber === 8 || colNumber === 9 || colNumber === 10) {
         cell.alignment = { vertical: 'middle', horizontal: 'right' };
       } else {
         cell.alignment = { vertical: 'middle', horizontal: 'left' };
@@ -297,6 +322,9 @@ export async function createInvestmentWorkbook({
     sheetRow.getCell(7).numFmt = PERCENT_FORMAT;
     sheetRow.getCell(8).numFmt = CURRENCY_FORMAT;
     sheetRow.getCell(8).font = { bold: true, size: 11, color: { argb: 'FF0F172A' } };
+    sheetRow.getCell(9).numFmt = '"Rs" #,##0.00';
+    sheetRow.getCell(10).numFmt = '#,##0';
+    sheetRow.getCell(10).font = { bold: true, size: 11, color: { argb: 'FF0F172A' } };
   });
 
   const lastDataRow = rows.length + 1;
@@ -313,6 +341,8 @@ export async function createInvestmentWorkbook({
     '',
     Number(totals.adjustedWeightage.toFixed(4)),
     totals.allocatedAmount,
+    '',
+    totals.totalShares,
   ];
   totalsRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.font = { bold: true, size: 11, color: { argb: COLORS.brandDark } };
@@ -328,14 +358,17 @@ export async function createInvestmentWorkbook({
   totalsRow.getCell(5).numFmt = PERCENT_FORMAT;
   totalsRow.getCell(7).numFmt = PERCENT_FORMAT;
   totalsRow.getCell(8).numFmt = CURRENCY_FORMAT;
+  totalsRow.getCell(10).numFmt = '#,##0';
 
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: lastDataRow, column: headers.length } };
 
   // Footnote under the totals row (does not affect the filter range).
   const footnote = sheet.getRow(lastDataRow + 3);
-  footnote.getCell(1).value = `PSXEdge • ${meta.label} • auto multiplier ${totals.multiplier.toFixed(
-    4,
-  )}× • ${filterSummary} • generated ${formatDateTime(now.toISOString())} • source: ${dataset.sourceLabel}`;
+  footnote.getCell(1).value =
+    `PSXEdge • ${meta.label} • auto multiplier ${totals.multiplier.toFixed(4)}× • ${filterSummary} • ` +
+    `${totals.totalShares} shares · ${formatPKRAmount(totals.investedAmount)} invested · ` +
+    `prices: ${priceInfo?.label ?? 'snapshot'} • generated ${formatDateTime(now.toISOString())} • ` +
+    `source: ${dataset.sourceLabel}`;
   footnote.getCell(1).font = { size: 9, italic: true, color: { argb: COLORS.muted } };
 
   sheet.pageSetup = {

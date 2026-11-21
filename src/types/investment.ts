@@ -16,6 +16,12 @@ export interface AllocationRow {
   allocation: number;
   /** Allocation in whole rupees — what the UI and Excel display. */
   allocationRounded: number;
+  /** Current price per share in PKR; null when no price is known. */
+  price: number | null;
+  /** Whole shares to buy: ⌊allocationRounded ÷ price⌋ (0 when unpriced). */
+  shares: number;
+  /** shares × price — what this company actually costs, never above the allocation. */
+  cost: number;
 }
 
 export interface InvestmentTotals {
@@ -31,6 +37,14 @@ export interface InvestmentTotals {
   allocatedPrecise: number;
   /** totalInvestment − allocatedAmount (normally 0, or < Rs 1 of rounding). */
   remainingCash: number;
+  /** Total whole shares across the visible rows. */
+  totalShares: number;
+  /** Σ shares × price — the cash actually deployed, never above the budget. */
+  investedAmount: number;
+  /** totalInvestment − investedAmount: cash no whole share can absorb. */
+  uninvestedCash: number;
+  /** Visible companies without a usable price (their allocation stays uninvested). */
+  missingPriceCount: number;
   /** Kept for compatibility; normalised allocations never exceed the budget. */
   isOverAllocated: boolean;
   overAllocatedBy: number;

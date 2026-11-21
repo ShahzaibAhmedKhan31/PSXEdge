@@ -4,7 +4,8 @@
 
 PSXEdge is a lightweight, fully client-side investment allocation calculator for the Pakistan Stock Exchange's
 **KSE-100** and **KMI-30** indices. Pick an index, enter a budget in PKR, and see the allocation for every constituent
-instantly — the weighting multiplier is derived automatically so the visible adjusted weights always total 100%. Export the whole plan to a professionally formatted Excel workbook — all calculations
+instantly — the weighting multiplier is derived automatically so visible adjusted weights total 100%, and each holding is
+converted into the **whole number of shares** its allocation can actually buy at the current price. Export the whole plan to a professionally formatted Excel workbook — all calculations
 run in your browser, with no accounts, database or application server.
 
 - **React 19 + TypeScript + Vite**
@@ -43,9 +44,11 @@ Node 20.19+ or 22.12+ is recommended (Vite 7 requirement).
 The calculator lists **all 100 KSE-100 constituents** and **all 30 KMI-30 constituents**, ranked by index weightage.
 
 ```
-Multiplier         = 100 ÷ Σ(original weightage of the visible companies)   ← derived, read-only
-Adjusted weightage = Original index weightage × Multiplier
-Investment (PKR)   = Total investment × (Adjusted weightage ÷ 100)
+Multiplier          = 100 ÷ Σ(original weightage of the visible companies)   ← derived, read-only
+Adjusted weightage  = Original index weightage × Multiplier
+Target investment   = Total investment × (Adjusted weightage ÷ 100)
+Shares to buy       = ⌊Target investment ÷ Current price⌋                     ← floored, whole shares only
+Actual cost (PKR)   = Shares to buy × Current price
 ```
 
 - The multiplier is **not editable**. It is computed from whatever is currently visible, so the adjusted weightages
@@ -58,12 +61,16 @@ Investment (PKR)   = Total investment × (Adjusted weightage ÷ 100)
   multiplier rebalances over the companies that remain — the visible adjusted weights still total 100%. Unchecked
   tickers persist per index, are listed in the Excel summary, and are cleared by **Reset**.
 - Rows are always sorted by **original** weightage, descending, with rank from the full index.
-- The dashboard shows the budget, total adjusted weightage (100%), total allocated and remaining cash. Over-allocation
-  can no longer occur because the normalised weights never exceed 100%.
-- All maths keeps full precision. Monetary values are apportioned in whole rupees with the largest-remainder method, so
+- **Share quantities:** each row shows the **current price per share** (editable inline) and the **shares to buy**. Shares
+  are always floored, so a holding can never cost more than its target and the plan can never spend more than the
+  budget. Example: Rs 4,831 ÷ Rs 571.30 = 8.46 → **8 shares** (Rs 4,570.40), with the Rs 260.60 remainder reported as
+  uninvested cash.
+- The dashboard shows the budget, total adjusted weightage (100%), total allocated, total shares, **invested amount**
+  (Σ shares × price) and **uninvested cash** (the part no whole share can absorb). Over-allocation is impossible.
+- All maths keeps full precision. Target amounts are apportioned in whole rupees with the largest-remainder method, so
   the rounded rows sum **exactly** to the budget and the table, summary cards and workbook always agree.
 - Inputs update results instantly via React state and a memoised `useInvestmentCalculator` hook. There is no "Calculate"
-  button. Filter choices persist per index; search terms reset on reload.
+  button. Filter choices and edited prices persist per index; search terms reset on reload.
 
 ---
 
@@ -131,6 +138,23 @@ The bundled files live in:
 - `src/data/sampleKSE100.ts` (100 constituents)
 - `src/data/sampleKMI30.ts` (30 constituents)
 
+### 1b. Share prices (editable, labelled snapshot)
+
+Whole-share sizing needs a price per company. The app bundles the **`CURRENT` column** from the same PSX Data Portal
+constituent tables (`src/data/priceSnapshot.ts`), captured **20 November 2026, 16:46 PKT** — the portal's own last-update
+stamp. Every one of the 100 + 30 figures is read from that table; nothing is invented, and a company without a price is
+shown as “—” and its allocation stays uninvested.
+
+Prices move constantly, so they are fully editable:
+
+- **Inline** — type a new price directly in the *Price / share* column; the share counts and totals recalculate when the
+  field loses focus (or on Enter).
+- **Bulk** — *Update prices* opens a dialog prefilled with `TICKER, PRICE` lines. Paste your broker's list (comma, tab,
+  colon or space separated, `Rs` and thousands separators accepted), apply, or reset to the bundled snapshot.
+- Edits are stored per index in `localStorage` and clearly labelled **“Edited in browser”**; the snapshot date is shown
+  under the table and in the Excel summary. There is no live price feed: PSX sends no CORS headers, and the app never
+  guesses a quote.
+
 ### 2. Manual import (works everywhere)
 
 Open **Import data** in the Data panel and drop a `.csv`, `.tsv`, `.xlsx` or `.xlsm` file. Everything is parsed in the
@@ -192,12 +216,13 @@ PSXEdge_KMI30_Investment_Breakdown_2026-11-17.xlsx
 ```
 
 **Worksheet 1 — Investment Summary:** application name, selected index, the active selection (shortlist + drill-down +
-unchecked companies), weighting method, constituents included (e.g. *20 of 100*), data source, retrieval date, dataset type, investment
-amount, the auto-derived multiplier, total adjusted weightage, total allocated, remaining cash and a generation note.
+unchecked companies), weighting method, constituents included (e.g. *20 of 100*), data source, retrieval date, dataset
+type, investment amount, the auto-derived multiplier, total adjusted weightage, total allocated, **total shares**,
+**invested amount**, **remaining cash** (the whole-share remainder), share-price source and date, and a generation note.
 
 **Worksheet 2 — Company Breakdown:** rank, ticker, company name, sector, original weightage, multiplier, adjusted
-weightage and investment amount (PKR), with bold header, borders, zebra fill, frozen header row, filters, currency and
-percentage number formats, a totals row and page setup for printing.
+weightage, target investment (PKR), **current price (PKR)** and **shares to buy**, with bold header, borders, zebra
+fill, frozen header row, filters, currency/percentage/quantity number formats, a totals row and page setup for printing.
 
 The export always reflects the values currently on screen.
 
@@ -215,19 +240,21 @@ src/
 │   ├── IndexSelector/IndexSelector.tsx
 │   ├── InvestmentInput/InvestmentInput.tsx
 │   ├── InvestmentSummary/InvestmentSummary.tsx
-│   ├── InvestmentTable/InvestmentTable.tsx
+│   ├── InvestmentTable/{InvestmentTable,PriceInput}.tsx   # table + inline price editor
 │   ├── AllocationFilters/AllocationFilters.tsx  # top-N shortlist + sector/search drill-down
 │   ├── AllocationFilters/CompanyFilterPopover.tsx # Excel-style include/uncheck checklist
 │   ├── MultiplierPanel/MultiplierPanel.tsx      # read-only derived multiplier
+│   ├── PriceDialog/PriceDialog.tsx              # bulk price paste + reset to snapshot
 │   ├── ThemeToggle/ThemeToggle.tsx
 │   └── Toast/Toast.tsx
-├── data/                                 # index metadata + labelled PSX snapshots
-├── hooks/                                # useIndexData, useInvestmentCalculator, useTheme
+├── data/                                 # index metadata, labelled PSX weight + price snapshots
+├── hooks/                                # useIndexData, useInvestmentCalculator, useSharePrices, useTheme
 ├── lib/                                  # localStorage wrapper, class-name helper
 ├── pages/Dashboard/Dashboard.tsx
 ├── services/
 │   ├── indexDataService.ts               # bundled/cached datasets, refresh attempts, PSX HTML parser
-│   ├── investmentCalculator.ts           # pure calculation engine
+│   ├── investmentCalculator.ts           # pure calculation engine (weights, shares, rounding)
+│   ├── priceService.ts                   # price snapshots, edits, paste parsing
 │   ├── importService.ts                  # browser CSV/XLSX reading
 │   └── excelExportService.ts             # ExcelJS workbook
 ├── types/
@@ -253,22 +280,25 @@ State stays local: a few hooks plus React state in the dashboard. No Redux, no r
 npm test
 ```
 
-The Vitest suite (117 tests across 9 files) covers the calculator, validation and import logic, formatters, the CSV
+The Vitest suite (144 tests across 12 files) covers the calculator, validation and import logic, formatters, the CSV
 parser and the Excel workbook (including a serialisation round-trip):
 
 1. Ranking: full 100 / 30 constituent lists, descending weightage, ticker tiebreak, non-mutating
 2. Shortlist + drill-down filtering: top-N applied first, sector and case-insensitive search composed on top
 3. Company checklist: unchecking tickers removes them, renormalises the multiplier and survives composition
 4. Auto multiplier: `100 ÷ Σ visible weightages`, 0 for an empty selection, rebalanced after filtering
-5. Adjusted weights total exactly 100% for the whole index and for every filtered subset
-6. Largest-remainder apportionment: rounded rows always sum to the budget, including awkward amounts
-7. Empty / negative / NaN inputs produce zeros rather than NaN
-8. Display rounding totals equal the sum of the table rows
-9. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
-10. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
-11. Excel worksheet names, summary values (selection, “20 of 100”, multiplier, 100% total), row counts, formats,
-    filters, totals row and a serialisation round-trip
-12. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
+5. Whole shares: `⌊target ÷ price⌋`, the Rs 4,831 ÷ Rs 571.30 → 8 example, and an index-wide check that
+   Σ shares × price never exceeds the budget
+6. Price snapshot integrity (100 + 30 real PSX prices), inline edits, paste parsing/clearing and reset
+7. Adjusted weights total exactly 100% for the whole index and for every filtered subset
+8. Largest-remainder apportionment: rounded rows always sum to the budget, including awkward amounts
+9. Empty / negative / NaN inputs produce zeros rather than NaN
+10. Display rounding totals equal the sum of the table rows
+11. Weightage parsing, ticker clean-up, duplicate handling, insufficient-data rejection
+12. CSV quoted fields, CRLF, delimiters; PSX-style `IDX WTG (%)` column detection
+13. Excel worksheet names, summary values (selection, “20 of 100”, multiplier, 100% total, shares, invested),
+    price/share columns, row counts, formats, filters, totals row and a serialisation round-trip
+14. Refresh behaviour: proxy is tried first, PSX table rows are extracted and validated, CORS failures are classified
     (not thrown), feeds are preferred, invalid feed data falls back, and both indices refresh together with partial
     success preserved
 
@@ -304,6 +334,10 @@ remove the rewrite and rely on CSV/XLSX import — the app detects a missing pro
 
 - Index weightages change continuously with prices and periodic recompositions. A snapshot — bundled, imported or
   fetched — is a point-in-time view. Verify current data at [psx.com.pk](https://www.psx.com.pk) before trading.
+- Share prices are a dated PSX snapshot (20 Nov 2026) or your own edits — never live quotes. Edit them (or paste a fresh
+  list) before acting on a plan.
+- Whole shares mean the invested amount is normally **below** the budget; the difference is shown as uninvested cash
+  rather than forced into an extra share.
 - The PSX endpoints are undocumented and may change; the parser is defensive and reports failures rather than guessing.
 - Company sector labels follow PSX sector classifications for the bundled snapshot; imported files keep their own sector
   values (or `Unclassified`).

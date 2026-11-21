@@ -20,6 +20,12 @@ describe('Dashboard render', () => {
     expect(html).toContain('Allocation breakdown');
     expect(html).toContain('Original weight');
     expect(html).toContain('Investment (PKR)');
+    expect(html).toContain('Price / share (Rs)');
+    expect(html).toContain('Shares to buy');
+    expect(html).toContain('Update prices');
+    expect(html).toContain('Current price for FFC in rupees');
+    expect(html).toContain('Invested amount');
+    expect(html).toContain('Uninvested cash');
     expect(html).toContain('FFC');
     expect(html).toContain('Rs 100,000');
     // The full index is listed: a small-cap name near rank 100 must be present.

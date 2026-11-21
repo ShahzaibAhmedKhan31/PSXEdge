@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   selectedIndex: 'psxedge.index',
   investment: 'psxedge.investment',
   filters: 'psxedge.filters',
+  pricesPrefix: 'psxedge.prices.',
   feedUrl: 'psxedge.feedUrl',
   datasetPrefix: 'psxedge.dataset.',
   lastAttemptPrefix: 'psxedge.lastAttempt.',

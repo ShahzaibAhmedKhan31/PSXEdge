@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INDEX_META } from '../data/indexMeta';
+import { PRICE_SNAPSHOT, SAMPLE_PRICES } from '../data/priceSnapshot';
 import { SAMPLE_KMI30 } from '../data/sampleKMI30';
 import { SAMPLE_KSE100 } from '../data/sampleKSE100';
 import { computeNormalisedBreakdown, rankConstituents } from './investmentCalculator';
@@ -16,7 +17,11 @@ const dataset: IndexDataset = {
 };
 
 const meta = INDEX_META.KMI30;
-const breakdown = computeNormalisedBreakdown(rankConstituents(dataset.constituents), 1_000_000);
+const breakdown = computeNormalisedBreakdown(
+  rankConstituents(dataset.constituents),
+  1_000_000,
+  SAMPLE_PRICES.KMI30,
+);
 const generatedAt = new Date('2026-11-17T12:00:00Z');
 
 const exportParams = {
@@ -25,6 +30,7 @@ const exportParams = {
   breakdown,
   filterSummary: 'All 30 companies',
   totalConstituents: 30,
+  priceInfo: { label: 'PSX Data Portal snapshot', updatedAt: PRICE_SNAPSHOT.capturedAt, edited: false },
   generatedAt,
 };
 
@@ -64,8 +70,16 @@ describe('Excel export', () => {
     expect(valueFor('Applied Multiplier (auto-derived)')).toBeCloseTo(breakdown.totals.multiplier, 10);
     expect(valueFor('Total Adjusted Weightage')).toBe(100);
     expect(valueFor('Total Allocated Amount (PKR)')).toBe(1_000_000);
-    expect(valueFor('Remaining Cash (PKR)')).toBe(0);
-    expect(valueFor('Allocation Status')).toBe('Fully allocated within budget');
+    expect(valueFor('Total Shares to Buy')).toBe(breakdown.totals.totalShares);
+    expect(valueFor('Invested Amount (PKR)')).toBeCloseTo(breakdown.totals.investedAmount, 2);
+    expect(valueFor('Remaining Cash (PKR)')).toBeCloseTo(breakdown.totals.uninvestedCash, 2);
+    expect(valueFor('Share Prices')).toBe('PSX Data Portal snapshot');
+    expect(String(valueFor('Allocation Status'))).toMatch(/^Fully allocated/);
+  });
+
+  it('never invests more than the budget', () => {
+    expect(breakdown.totals.investedAmount).toBeLessThanOrEqual(1_000_000);
+    expect(breakdown.totals.totalShares).toBeGreaterThan(0);
   });
 
   it('writes every company row plus totals with correct formatting', async () => {
@@ -84,6 +98,8 @@ describe('Excel export', () => {
       'Multiplier',
       'Adjusted Weightage (%)',
       'Investment Amount (PKR)',
+      'Current Price (PKR)',
+      'Shares to Buy',
     ]);
 
     expect(sheet.rowCount).toBeGreaterThanOrEqual(34);
@@ -94,17 +110,22 @@ describe('Excel export', () => {
     expect(sheet.getRow(2).getCell(5).numFmt).toBe('0.00"%"');
     expect(sheet.getRow(2).getCell(8).numFmt).toBe('"Rs" #,##0');
     expect(sheet.getRow(2).getCell(8).value).toBe(breakdown.rows[0].allocationRounded);
+    expect(sheet.getRow(2).getCell(9).value).toBe(571.3);
+    expect(sheet.getRow(2).getCell(9).numFmt).toBe('"Rs" #,##0.00');
+    expect(sheet.getRow(2).getCell(10).value).toBe(breakdown.rows[0].shares);
+    expect(sheet.getRow(2).getCell(10).numFmt).toBe('#,##0');
     expect(sheet.getRow(31).getCell(2).value).toBe(breakdown.rows[29].ticker);
 
     // Header is frozen and filters cover the data range only.
     expect(sheet.views[0]).toMatchObject({ state: 'frozen', ySplit: 1 });
-    expect(sheet.autoFilter).toMatchObject({ from: { row: 1, column: 1 }, to: { row: 31, column: 8 } });
+    expect(sheet.autoFilter).toMatchObject({ from: { row: 1, column: 1 }, to: { row: 31, column: 10 } });
 
     // Totals row (32) matches the on-screen totals.
     expect(sheet.getRow(32).getCell(1).value).toBe('Total');
     expect(sheet.getRow(32).getCell(3).value).toBe('30 of 30 companies');
     expect(sheet.getRow(32).getCell(7).value).toBe(100);
     expect(sheet.getRow(32).getCell(8).value).toBe(1_000_000);
+    expect(sheet.getRow(32).getCell(10).value).toBe(breakdown.totals.totalShares);
   });
 
   it('round-trips through xlsx serialisation', async () => {
@@ -118,10 +139,15 @@ describe('Excel export', () => {
     const sheet = reloaded.getWorksheet('Company Breakdown');
     expect(sheet?.rowCount).toBeGreaterThanOrEqual(32);
     expect(sheet?.getRow(2).getCell(2).value).toBe('FFC');
+    expect(sheet?.getRow(2).getCell(10).value).toBe(breakdown.rows[0].shares);
   });
 
   it('exports the full 100-name KSE-100 list', async () => {
-    const kseBreakdown = computeNormalisedBreakdown(rankConstituents(SAMPLE_KSE100), 500_000);
+    const kseBreakdown = computeNormalisedBreakdown(
+      rankConstituents(SAMPLE_KSE100),
+      500_000,
+      SAMPLE_PRICES.KSE100,
+    );
     const workbook = await createInvestmentWorkbook({
       meta: INDEX_META.KSE100,
       dataset: { ...dataset, index: 'KSE100', constituents: [...SAMPLE_KSE100] },
@@ -129,6 +155,7 @@ describe('Excel export', () => {
       filterSummary: 'Top 20 of 100 by weightage · sector: Commercial Banks',
       totalConstituents: 100,
       excludedCompanies: ['FFC', 'UBL'],
+      priceInfo: { label: 'Edited in browser', updatedAt: generatedAt.toISOString(), edited: true },
       generatedAt,
     });
     const sheet = workbook.getWorksheet('Company Breakdown');
@@ -140,5 +167,6 @@ describe('Excel export', () => {
     expect(valueFor('Selection')).toBe('Top 20 of 100 by weightage · sector: Commercial Banks');
     expect(valueFor('Constituents Included')).toBe('100 of 100');
     expect(valueFor('Unchecked Companies')).toBe('FFC, UBL');
+    expect(valueFor('Price Edits')).toBe('Edited in this browser');
   });
 });

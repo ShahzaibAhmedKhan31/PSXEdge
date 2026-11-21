@@ -4,12 +4,14 @@ import { InvestmentInput } from '../../components/InvestmentInput/InvestmentInpu
 import { InvestmentSummary } from '../../components/InvestmentSummary/InvestmentSummary';
 import { InvestmentTable } from '../../components/InvestmentTable/InvestmentTable';
 import { MultiplierPanel } from '../../components/MultiplierPanel/MultiplierPanel';
+import { PriceDialog } from '../../components/PriceDialog/PriceDialog';
 import { DataStatus } from '../../components/DataRefresh/DataStatus';
 import { DataImportDialog } from '../../components/DataImport/DataImportDialog';
 import { Toast, type ToastMessage, type ToastTone } from '../../components/Toast/Toast';
 import { INDEX_META, isIndexKey } from '../../data/indexMeta';
 import { useIndexData } from '../../hooks/useIndexData';
 import { useInvestmentCalculator } from '../../hooks/useInvestmentCalculator';
+import { useSharePrices } from '../../hooks/useSharePrices';
 import { useTheme } from '../../hooks/useTheme';
 import { STORAGE_KEYS, readJSON, readRaw, writeRaw, writeJSON } from '../../lib/storage';
 import { exportInvestmentWorkbook } from '../../services/excelExportService';
@@ -21,6 +23,7 @@ import {
   sectorOptions,
 } from '../../services/investmentCalculator';
 import { parseAmountInput } from '../../utils/currencyFormatter';
+import { priceSetLabel } from '../../services/priceService';
 import type { IndexDataset, IndexKey } from '../../types';
 import type { AllocationFilter, TopNSelection } from '../../types/investment';
 
@@ -70,8 +73,10 @@ export function Dashboard() {
 
   const [investmentRaw, setInvestmentRaw] = useState(initialInvestmentRaw);
   const [filters, setFilters] = useState<Record<IndexKey, AllocationFilter>>(initialFilters);
+  const { priceSet, setPrice, applyPrices, resetToSnapshot } = useSharePrices(index);
   const [exporting, setExporting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [pricesOpen, setPricesOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const toastId = useRef(0);
 
@@ -115,7 +120,12 @@ export function Dashboard() {
     [visible],
   );
 
-  const breakdown = useInvestmentCalculator({ ranked: visible, totalInvestment, index });
+  const breakdown = useInvestmentCalculator({
+    ranked: visible,
+    totalInvestment,
+    prices: priceSet.prices,
+    index,
+  });
 
   const handleFilterChange = useCallback(
     (next: AllocationFilter) => {
@@ -176,6 +186,11 @@ export function Dashboard() {
         filterSummary: describeFilter(filter, ranked.length),
         totalConstituents: ranked.length,
         excludedCompanies: filter.excluded ?? [],
+        priceInfo: {
+          label: priceSetLabel(priceSet),
+          updatedAt: priceSet.updatedAt,
+          edited: priceSet.edited,
+        },
       });
       showToast('success', 'Excel workbook exported', fileName);
     } catch (error) {
@@ -187,7 +202,7 @@ export function Dashboard() {
     } finally {
       setExporting(false);
     }
-  }, [breakdown, dataset, exporting, filter, meta, ranked.length, showToast]);
+  }, [breakdown, dataset, exporting, filter, meta, priceSet, ranked.length, showToast]);
 
   return (
     <div className="flex min-h-full flex-col bg-ink-50 text-ink-900 dark:bg-ink-950 dark:text-ink-100">
@@ -210,8 +225,8 @@ export function Dashboard() {
               Allocation calculator
             </h2>
             <p className="text-xs text-ink-500 dark:text-ink-400">
-              Every constituent is listed. The multiplier is derived automatically so adjusted weights always total
-              100%.
+              Every constituent is listed. Weights normalise to 100% automatically, and each holding is floored to whole
+              shares so you never spend above the budget.
             </p>
           </div>
           <p className="hidden text-[11px] text-ink-400 dark:text-ink-500 sm:block">
@@ -257,13 +272,18 @@ export function Dashboard() {
             sectors={sectors}
             totalCount={ranked.length}
             companies={candidates}
+            priceLabel={priceSetLabel(priceSet)}
+            priceUpdatedAt={priceSet.updatedAt}
+            priceEdited={priceSet.edited}
+            onPriceChange={setPrice}
+            onOpenPrices={() => setPricesOpen(true)}
           />
         </div>
 
         <footer className="mt-6 flex flex-col gap-2 border-t border-ink-200 pt-4 text-[11px] leading-relaxed text-ink-400 dark:border-ink-800 dark:text-ink-500 sm:flex-row sm:items-start sm:justify-between">
           <p className="max-w-2xl">
             PSXEdge is an educational allocation calculator, not investment advice, and is not affiliated with the
-            Pakistan Stock Exchange. Index weightages change with prices and recompositions — verify them at{' '}
+            Pakistan Stock Exchange. Index weightages and share prices change constantly — verify both at{' '}
             <a
               href="https://www.psx.com.pk"
               target="_blank"
@@ -288,6 +308,17 @@ export function Dashboard() {
         onClose={() => setImportOpen(false)}
         onImported={handleImported}
         onResetToBundled={handleResetToBundled}
+      />
+
+      <PriceDialog
+        open={pricesOpen}
+        index={index}
+        meta={meta}
+        priceSet={priceSet}
+        tickers={ranked.map((company) => company.ticker)}
+        onApply={applyPrices}
+        onReset={resetToSnapshot}
+        onClose={() => setPricesOpen(false)}
       />
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />

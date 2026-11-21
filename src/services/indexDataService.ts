@@ -238,44 +238,78 @@ export function proxyPathFor(meta: { psxUrl: string }): string {
  * Fetch the index page through the same-origin proxy. Because the URL is
  * same-origin, no CORS header is needed and the browser exposes the HTML.
  */
-async function attemptPsxProxy(index: IndexKey): Promise<{ dataset: IndexDataset | null; attempts: AttemptLog[] }> {
-  const meta = INDEX_META[index];
-  const path = proxyPathFor(meta);
-  const label = `PSX proxy (${path})`;
+/** Append a cache-busting query so each refresh hits PSX fresh instead of a cached/error page. */
+function cacheBust(path: string): string {
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}_t=${Date.now()}`;
+}
 
+/** Fetch a single proxy attempt, returning the dataset on success or an error message. */
+async function fetchProxyOnce(
+  path: string,
+  index: IndexKey,
+  meta: (typeof INDEX_META)[IndexKey],
+): Promise<{ dataset: IndexDataset | null; message?: string }> {
   try {
-    const response = await fetchWithTimeout(path);
+    const response = await fetchWithTimeout(cacheBust(path));
     if (!response.ok) {
-      throw new Error(
-        response.status === 404
-          ? `${PROXY_UNAVAILABLE_MESSAGE} (HTTP 404)`
-          : `The proxy responded with HTTP ${response.status}.`,
-      );
+      return {
+        dataset: null,
+        message:
+          response.status === 404
+            ? `${PROXY_UNAVAILABLE_MESSAGE} (HTTP 404)`
+            : `The proxy responded with HTTP ${response.status}.`,
+      };
     }
 
     const html = await response.text();
     const parsed = parsePsxIndexHtml(html);
     if (parsed.length === 0) {
-      throw new Error('The proxy responded, but no PSX constituent rows could be read.');
+      return { dataset: null, message: 'The proxy responded, but no PSX constituent rows could be read.' };
     }
 
     const analysis = analyzeConstituents(parsed, meta);
-    if (!analysis.ok) throw new Error(analysis.errors.join(' '));
+    if (!analysis.ok) return { dataset: null, message: analysis.errors.join(' ') };
 
-    const dataset = buildDataset({
-      index,
-      constituents: analysis.all,
-      origin: 'live',
-      sourceLabel: 'PSX Data Portal — live via same-origin proxy',
-      sourceUrl: meta.psxUrl,
-    });
-
-    return { dataset, attempts: [{ label, ok: true }] };
+    return {
+      dataset: buildDataset({
+        index,
+        constituents: analysis.all,
+        origin: 'live',
+        sourceLabel: 'PSX Data Portal — live via same-origin proxy',
+        sourceUrl: meta.psxUrl,
+      }),
+    };
   } catch (error) {
-    const failure = classifyFetchError(error);
-    // A same-origin proxy failure is never a CORS problem.
-    return { dataset: null, attempts: [{ label, ok: false, message: failure.message, corsBlocked: false }] };
+    return {
+      dataset: null,
+      message: error instanceof Error ? error.message : 'Request failed.',
+    };
   }
+}
+
+/** Fetch through the same-origin proxy, retrying once on a transient failure. */
+async function attemptPsxProxy(index: IndexKey): Promise<{ dataset: IndexDataset | null; attempts: AttemptLog[] }> {
+  const meta = INDEX_META[index];
+  const path = proxyPathFor(meta);
+  const label = `PSX proxy (${path})`;
+
+  // Try once, then retry once on failure — transient proxy hiccups (rate
+  // limiting, a momentary 500) should not kill a whole refresh. The first
+  // error is reported so the user sees the real proxy status (e.g. HTTP 500).
+  let firstMessage = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await fetchProxyOnce(path, index, meta);
+    if (result.dataset) {
+      return { dataset: result.dataset, attempts: [{ label, ok: true }] };
+    }
+    if (!firstMessage) firstMessage = result.message ?? '';
+  }
+
+  return {
+    dataset: null,
+    attempts: [{ label, ok: false, message: firstMessage || 'The proxy could not be reached.', corsBlocked: false }],
+  };
 }
 
 export interface FetchErrorInfo {

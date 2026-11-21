@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload, X } from
 import { INDEX_KEYS, INDEX_META } from '../../data/indexMeta';
 import { cn } from '../../lib/cn';
 import { STORAGE_KEYS, readRaw, writeRaw } from '../../lib/storage';
+import { isPsxUrl } from '../../services/indexDataService';
 import {
   analyzeFile,
   datasetFromImport,
@@ -113,8 +114,20 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
       setFeedStatus('Enter a valid http(s) URL.');
       return;
     }
+    if (isPsxUrl(trimmed)) {
+      setFeedStatus(
+        'That is a PSX URL — PSX sends no CORS headers, so a browser can never read it. Save a JSON file you host instead, or leave this blank to use the /psx proxy.',
+      );
+      return;
+    }
     writeRaw(STORAGE_KEYS.feedUrl, trimmed);
     setFeedStatus('Feed saved. Use Refresh to fetch from it.');
+  };
+
+  const clearFeed = () => {
+    setFeedUrl('');
+    writeRaw(STORAGE_KEYS.feedUrl, '');
+    setFeedStatus('Custom feed cleared. Refresh now uses the /psx proxy.');
   };
 
   const previewRows = useMemo(() => analysis?.all.slice(0, 8) ?? [], [analysis]);
@@ -369,9 +382,10 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
             </summary>
             <div className="mt-2 space-y-2">
               <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
-                PSX's own portal cannot be read by a browser (no CORS headers). If you host a CORS-enabled JSON endpoint
-                — for example a static file on GitHub Pages — paste it here. It is applied to the selected index when
-                you refresh; the other index still uses the /psx proxy. Expected shape:{' '}
+                PSX's own portal cannot be read by a browser (no CORS headers), so a PSX URL will never work here. If
+                you host a CORS-enabled JSON endpoint — for example a static file on GitHub Pages — paste it here. It is
+                tried first for the selected index when you refresh; the other index uses the /psx proxy. Leave this
+                blank to always use the proxy. Expected shape:{' '}
                 <code className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px] text-ink-700 dark:bg-ink-800 dark:text-ink-200">
                   {'{ "constituents": [{ "ticker": "FFC", "companyName": "…", "sector": "…", "weightage": 9.13 }] }'}
                 </code>
@@ -394,6 +408,15 @@ export function DataImportDialog({ open, initialIndex, onClose, onImported, onRe
                 >
                   Save
                 </button>
+                {feedUrl.trim() ? (
+                  <button
+                    type="button"
+                    onClick={clearFeed}
+                    className="h-8 rounded-md px-2 text-[11px] font-medium text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200"
+                  >
+                    Clear
+                  </button>
+                ) : null}
               </div>
               {feedStatus ? <p className="text-[11px] font-medium text-ink-500 dark:text-ink-400">{feedStatus}</p> : null}
             </div>

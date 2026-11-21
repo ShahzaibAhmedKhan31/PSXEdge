@@ -83,6 +83,24 @@ export function getCustomFeedUrl(): string {
   return (readRaw(STORAGE_KEYS.feedUrl) ?? '').trim();
 }
 
+/** True for PSX's own hosts, which can never be read directly by a browser. */
+export function isPsxUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'psx.com.pk' || host.endsWith('.psx.com.pk');
+  } catch {
+    return false;
+  }
+}
+
+function feedHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'custom URL';
+  }
+}
+
 export function datasetAgeDays(dataset: IndexDataset, now: Date = new Date()): number {
   const retrieved = Date.parse(dataset.retrievedAt);
   if (Number.isNaN(retrieved)) return Number.POSITIVE_INFINITY;
@@ -353,7 +371,7 @@ function toConstituent(raw: unknown): Constituent | null {
 
 async function attemptCustomFeed(index: IndexKey, feedUrl: string): Promise<{ dataset: IndexDataset | null; attempts: AttemptLog[] }> {
   const meta = INDEX_META[index];
-  const label = 'Custom CORS-enabled feed';
+  const label = `Custom feed (${feedHost(feedUrl)})`;
   try {
     const response = await fetchWithTimeout(feedUrl);
     if (!response.ok) throw new Error(`Feed responded with HTTP ${response.status}.`);
@@ -390,9 +408,21 @@ export async function refreshIndexData(index: IndexKey, feedUrl = getCustomFeedU
   const attempts: AttemptLog[] = [];
 
   if (feedUrl) {
-    const result = await attemptCustomFeed(index, feedUrl);
-    attempts.push(...result.attempts);
-    if (result.dataset) return { dataset: result.dataset, attempts, corsBlocked: false };
+    if (isPsxUrl(feedUrl)) {
+      // A saved PSX URL can never work in a browser; skip it quietly instead of
+      // reporting a fake CORS block on every refresh.
+      attempts.push({
+        label: `Custom feed (${feedHost(feedUrl)})`,
+        ok: false,
+        message:
+          'The saved feed points at PSX itself, which blocks browser requests. Using the /psx proxy instead — clear the feed URL in the import dialog if you do not use one.',
+        corsBlocked: false,
+      });
+    } else {
+      const result = await attemptCustomFeed(index, feedUrl);
+      attempts.push(...result.attempts);
+      if (result.dataset) return { dataset: result.dataset, attempts, corsBlocked: false };
+    }
   }
 
   const proxyResult = await attemptPsxProxy(index);

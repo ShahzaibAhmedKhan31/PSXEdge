@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Database, Info, RefreshCw, RotateCcw, Upload } from 'lucide-react';
 import { cn } from '../../lib/cn';
+import { INDEX_META } from '../../data/indexMeta';
 import { formatTimestamp } from '../../services/indexDataService';
 import type { AttemptLog, IndexDataset, IndexMeta } from '../../types';
+import { analyseRefreshAttempts } from '../../utils/refreshStatus';
 
 interface DataStatusProps {
   dataset: IndexDataset;
@@ -39,17 +41,22 @@ export function DataStatus({
   onRefresh,
   onResetToBundled,
 }: DataStatusProps) {
-  const failedAttempts = attempts.filter((attempt) => !attempt.ok);
-  const corsBlocked = attempts.some((attempt) => attempt.corsBlocked);
+  // Only a refresh where *every* source failed is a blocked refresh. A stale
+  // optional feed that fails before the /psx proxy succeeds is not an error.
+  const status = analyseRefreshAttempts(attempts);
+  const { corsBlocked, failed: failedIndices, ignoredFailures } = status;
+  const refreshSucceeded = status.succeeded.length > 0;
   const [showInfo, setShowInfo] = useState(false);
-  // Open the explanation automatically the first time a refresh is blocked,
-  // so the CORS message is never a mystery.
+
+  // Open the explanation automatically only when the refresh really was blocked,
+  // so success is never presented as a CORS problem.
   useEffect(() => {
     if (corsBlocked) setShowInfo(true);
   }, [corsBlocked]);
 
   const ageLabel =
     ageDays < 1 ? 'today' : `${Math.floor(ageDays)} ${Math.floor(ageDays) === 1 ? 'day' : 'days'} old`;
+  const failedLabels = failedIndices.map((key) => INDEX_META[key].label);
 
   return (
     <section aria-label="Dataset status" className="rounded-xl border border-ink-200 bg-white shadow-card dark:border-ink-800 dark:bg-ink-900">
@@ -146,6 +153,25 @@ export function DataStatus({
         </div>
       ) : null}
 
+      {corsBlocked ? (
+        <div className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <p>
+            Live refresh was blocked: every source failed — the /psx proxy returned an error and direct requests to
+            PSX are refused by the browser (no CORS headers). The previous dataset is still in use. The attempt log
+            below shows exactly what each source returned.
+          </p>
+        </div>
+      ) : failedIndices.length > 0 && refreshSucceeded ? (
+        <div className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-[11px] leading-relaxed text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <p>
+            {failedLabels.join(' and ')} could not be refreshed, so {failedIndices.length === 1 ? 'its' : 'their'}{' '}
+            previous dataset is still in use. The other index is up to date.
+          </p>
+        </div>
+      ) : null}
+
       <details
         open={showInfo}
         onToggle={(event) => setShowInfo((event.currentTarget as HTMLDetailsElement).open)}
@@ -154,7 +180,7 @@ export function DataStatus({
         <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-medium text-ink-500 outline-none hover:text-ink-700 dark:text-ink-400 dark:hover:text-ink-200">
           <Info className="h-3.5 w-3.5" aria-hidden="true" />
           Live refresh, the /psx proxy and CORS
-          {failedAttempts.length > 0 ? (
+          {corsBlocked ? (
             <span className="rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
               PSX blocked the request
             </span>
@@ -173,50 +199,77 @@ export function DataStatus({
             One click refreshes <span className="font-medium text-ink-600 dark:text-ink-300">both indices</span> — KSE-100
             and KMI-30 are fetched and validated together, so switching the toggle afterwards shows fresh data too.
           </p>
-          <p>
-            <span className="font-semibold text-ink-700 dark:text-ink-200">
-              If you still see a CORS warning, the proxy was not reachable from this host.
-            </span>{' '}
-            A plain static host without the rewrite, a blocked network or a PSX outage all produce it. PSX&apos;s Data
-            Portal sends no <code className="rounded bg-ink-100 px-1 font-mono text-[10px] dark:bg-ink-800">Access-Control-Allow-Origin</code>{' '}
-            header, so the browser refuses the direct fallback request. The last validated dataset stays in place and
-            nothing on screen changes.
-          </p>
-          <p className="font-medium text-ink-600 dark:text-ink-300">To update the data, use one of these:</p>
-          <ol className="list-decimal space-y-1 pl-4">
-            <li>
-              <span className="font-medium text-ink-600 dark:text-ink-300">Import data</span> — drop a CSV/TSV or XLSX
-              export of the constituents. It is parsed and validated entirely in your browser.
-            </li>
-            <li>
-              <span className="font-medium text-ink-600 dark:text-ink-300">Connect a CORS-enabled feed</span> — a JSON URL
-              you host somewhere that allows cross-origin reads (Advanced section of the import dialog). Refresh uses
-              it before falling back to the /psx proxy.
-            </li>
-            <li>
-              <span className="font-medium text-ink-600 dark:text-ink-300">Keep the bundled snapshot</span> — labelled
-              point-in-time PSX data that ships with each release.
-            </li>
-          </ol>
+
+          {refreshSucceeded ? (
+            <p className="rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-2 text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200">
+              <span className="font-semibold">This refresh succeeded.</span>{' '}
+              {ignoredFailures.length > 0
+                ? 'Optional sources that failed (such as an old custom feed) were skipped once a later source answered — they do not affect the data above.'
+                : 'The dataset above is the fresh live data.'}
+            </p>
+          ) : null}
+
+          {corsBlocked ? (
+            <p>
+              <span className="font-semibold text-ink-700 dark:text-ink-200">
+                The proxy was not reachable from this host.
+              </span>{' '}
+              A plain static host without the rewrite, a blocked network or a PSX outage all produce this. PSX&apos;s Data
+              Portal sends no{' '}
+              <code className="rounded bg-ink-100 px-1 font-mono text-[10px] dark:bg-ink-800">
+                Access-Control-Allow-Origin
+              </code>{' '}
+              header, so the browser refuses the direct fallback request. The last validated dataset stays in place and
+              nothing on screen changes.
+            </p>
+          ) : null}
+
+          {!refreshSucceeded ? (
+            <>
+              <p className="font-medium text-ink-600 dark:text-ink-300">To update the data, use one of these:</p>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>
+                  <span className="font-medium text-ink-600 dark:text-ink-300">Import data</span> — drop a CSV/TSV or XLSX
+                  export of the constituents. It is parsed and validated entirely in your browser.
+                </li>
+                <li>
+                  <span className="font-medium text-ink-600 dark:text-ink-300">Connect a CORS-enabled feed</span> — a JSON
+                  URL you host somewhere that allows cross-origin reads (Advanced section of the import dialog). Refresh
+                  uses it before falling back to the /psx proxy.
+                </li>
+                <li>
+                  <span className="font-medium text-ink-600 dark:text-ink-300">Keep the bundled snapshot</span> — labelled
+                  point-in-time PSX data that ships with each release.
+                </li>
+              </ol>
+            </>
+          ) : null}
+
           {attempts.length > 0 ? (
             <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-2.5 dark:border-ink-800 dark:bg-ink-950/40">
               <p className="mb-1 font-medium text-ink-600 dark:text-ink-300">Last refresh attempt</p>
               <ul className="space-y-1">
-                {attempts.map((attempt) => (
-                  <li key={attempt.label} className="flex gap-1.5">
-                    <span
-                      className={
-                        attempt.ok ? 'text-brand-600 dark:text-brand-400' : 'text-amber-600 dark:text-amber-400'
-                      }
-                    >
-                      {attempt.ok ? '✓' : '!'}
-                    </span>
-                    <span>
-                      <span className="font-medium text-ink-600 dark:text-ink-300">{attempt.label}</span>
-                      {attempt.ok ? ' — succeeded.' : ` — ${attempt.message ?? 'failed.'}`}
-                    </span>
-                  </li>
-                ))}
+                {attempts.map((attempt) => {
+                  const ignored = !attempt.ok && ignoredFailures.includes(attempt);
+                  return (
+                    <li key={attempt.label} className="flex gap-1.5">
+                      <span
+                        className={
+                          attempt.ok ? 'text-brand-600 dark:text-brand-400' : 'text-amber-600 dark:text-amber-400'
+                        }
+                      >
+                        {attempt.ok ? '✓' : '!'}
+                      </span>
+                      <span>
+                        <span className="font-medium text-ink-600 dark:text-ink-300">{attempt.label}</span>
+                        {attempt.ok ? ' — succeeded.' : ` — ${attempt.message ?? 'failed.'}`}
+                        {ignored ? (
+                          <span className="text-ink-400 dark:text-ink-500"> (optional source — not needed)</span>
+                        ) : null}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null}

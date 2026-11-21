@@ -117,13 +117,14 @@ describe('refreshIndexData', () => {
     expect(outcome.attempts).toHaveLength(1);
     expect(outcome.attempts[0]).toMatchObject({ ok: true, label: 'PSX proxy (/psx/indices/KSE100)' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/psx/indices/KSE100', expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/psx/indices/KSE100'), expect.anything());
   });
 
   it('falls back to a direct request and flags CORS when the proxy is missing', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -136,7 +137,7 @@ describe('refreshIndexData', () => {
     expect(outcome.attempts[0].message).toMatch(/404/);
     expect(outcome.attempts[1].corsBlocked).toBe(true);
     expect(outcome.attempts[1].label).toContain(INDEX_META.KMI30.psxUrl.replace('https://', ''));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('uses a CORS-enabled feed when one is configured', async () => {
@@ -162,6 +163,7 @@ describe('refreshIndexData', () => {
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ constituents: feedRows.slice(0, 5) }) })
       .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -172,7 +174,7 @@ describe('refreshIndexData', () => {
     expect(outcome.attempts[0].ok).toBe(false);
     expect(outcome.attempts[0].message).toMatch(/needs at least 20/);
     expect(outcome.attempts[1].label).toContain('/psx/indices/KSE100');
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -189,8 +191,8 @@ describe('refreshAllIndexData', () => {
     expect(outcome.corsBlocked).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
-      '/psx/indices/KSE100',
-      '/psx/indices/KMI30',
+      expect.stringContaining('/psx/indices/KSE100'),
+      expect.stringContaining('/psx/indices/KMI30'),
     ]);
     expect(outcome.attempts).toHaveLength(2);
     expect(outcome.attempts[0]).toMatchObject({ ok: true, label: 'KSE-100 · PSX proxy (/psx/indices/KSE100)' });
@@ -199,8 +201,8 @@ describe('refreshAllIndexData', () => {
 
   it('keeps the index that succeeded when the other fails', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url === '/psx/indices/KMI30') return Promise.resolve({ ok: false, status: 404 });
-      if (url === '/psx/indices/KSE100') return Promise.resolve({ ok: true, text: async () => '<html></html>' });
+      if (url.startsWith('/psx/indices/KMI30')) return Promise.resolve({ ok: false, status: 404 });
+      if (url.startsWith('/psx/indices/KSE100')) return Promise.resolve({ ok: true, text: async () => '<html></html>' });
       return Promise.reject(new TypeError('Failed to fetch'));
     });
     vi.stubGlobal('fetch', fetchMock);

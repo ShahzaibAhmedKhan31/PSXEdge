@@ -63,8 +63,6 @@ export function useIndexData() {
 
   const refresh = useCallback(
     async (options?: { silent?: boolean }): Promise<RefreshFeedback> => {
-      // A refresh updates every index, so record the attempt for each of them.
-      INDEX_KEYS.forEach((key) => writeRaw(lastAttemptKey(key), String(Date.now())));
       if (!options?.silent) setRefreshing(true);
 
       try {
@@ -76,6 +74,9 @@ export function useIndexData() {
         setAttempts(outcome.attempts);
 
         if (outcome.updated.length > 0) {
+          // Record the attempt only after a successful refresh: a failed refresh
+          // must not start the 6-hour lock-out, otherwise the user cannot retry.
+          INDEX_KEYS.forEach((key) => writeRaw(lastAttemptKey(key), String(Date.now())));
           for (const key of outcome.updated) {
             const dataset = outcome.datasets[key];
             if (dataset) saveCachedDataset(dataset);
